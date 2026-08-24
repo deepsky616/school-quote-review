@@ -4,6 +4,7 @@ import test from "node:test";
 import { spreadsheetRowsToOrder } from "../app/fileImport.mjs";
 import { createBookmarklet, decodeBookmarkletCapture, extractStructuredOrder, getShoppingLinkInfo, normalizeShoppingUrl } from "../app/linkImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
+import { parsePublicProductHtml } from "../app/productDraft.mjs";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -23,7 +24,8 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
 
   const html = await response.text();
   assert.match(html, /견적정리/);
-  assert.match(html, /쇼핑몰 장바구니·주문 링크로 시작하세요/);
+  assert.match(html, /상품 링크만 붙여넣으세요/);
+  assert.match(html, /상품 초안 만들기/);
   assert.match(html, /아직 불러온 품목이 없어요/);
   assert.match(html, /정확하게 가져오는 권장 순서/);
   assert.match(html, /K-에듀파인 등록/);
@@ -66,7 +68,10 @@ test("링크와 문서·사진을 우선하고 텍스트 붙여넣기는 보조 
   ]);
   const manifest = JSON.parse(manifestText);
 
-  assert.match(review, /장바구니·주문 링크로 시작하세요/);
+  assert.match(review, /상품 링크만 붙여넣으세요/);
+  assert.match(review, /부족한 값만 확인해 주세요/);
+  assert.match(review, /확인하고 검수표에 추가/);
+  assert.match(review, /고급 기능 · 로그인 주문 화면을 한꺼번에 가져오기/);
   assert.match(review, /현재 화면 보내기/);
   assert.match(linkImport, /credentials: "omit"/);
   assert.match(linkImport, /\[itemtype\*='Product'\]/);
@@ -133,6 +138,25 @@ test("G마켓 현재 상품 화면은 JSON-LD 상품을 읽고 수량·가격 �
   assert.equal(order.items[0].단가, 2400);
   assert.deepEqual(order.items[0]._warnings, ["V04", "V11"]);
   assert.deepEqual(order._warnings, ["V08"]);
+});
+
+test("G마켓 상품 링크는 공개 메타데이터로 초안을 만들고 차단 시 빈칸 확인으로 이어진다", () => {
+  const sourceUrl = "https://item.gmarket.co.kr/Item?goodscode=4833981563";
+  const html = `<html><head><script type="application/ld+json">${JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: "수업용 실험 비커 250mL",
+    offers: { "@type": "Offer", price: "2400", priceCurrency: "KRW" },
+  })}</script></head></html>`;
+  const found = parsePublicProductHtml(html, { productId: "4833981563", sourceUrl });
+  assert.equal(found.name, "수업용 실험 비커 250mL");
+  assert.equal(found.price, 2400);
+  assert.equal(found.lookupStatus, "found");
+
+  const blocked = parsePublicProductHtml("<title>잠시만 기다리십시오…</title><p>봇(Bot) 확인 안내</p>", { productId: "4833981563", sourceUrl });
+  assert.equal(blocked.lookupStatus, "blocked");
+  assert.equal(blocked.name, "");
+  assert.equal(blocked.price, 0);
 });
 
 test("봇 확인 화면은 상품으로 잘못 가져오지 않는다", () => {

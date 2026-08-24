@@ -25,6 +25,19 @@ type OrderMeta = {
   warnings: string[];
 };
 
+type LinkDraft = {
+  sourceUrl: string;
+  mall: string;
+  productId: string;
+  name: string;
+  spec: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  paidTotal: string;
+  lookupStatus: string;
+};
+
 const initialItems: ReviewItem[] = [];
 
 const initialMeta: OrderMeta = {
@@ -244,8 +257,10 @@ export default function ReviewApp() {
   const [message, setMessage] = useState("자동 저장됨");
   const [isImportOpen, setImportOpen] = useState(false);
   const [shoppingUrl, setShoppingUrl] = useState("");
-  const [linkStatus, setLinkStatus] = useState("장바구니 공유 링크나 주문 상세 링크를 붙여넣으세요.");
-  const [linkKind, setLinkKind] = useState<"idle" | "working" | "success" | "needs-browser" | "error">("idle");
+  const [linkStatus, setLinkStatus] = useState("상품 링크를 붙여넣으면 견적 초안을 만들어요.");
+  const [linkKind, setLinkKind] = useState<"idle" | "working" | "success" | "needs-confirmation" | "error">("idle");
+  const [linkDraft, setLinkDraft] = useState<LinkDraft | null>(null);
+  const [draftError, setDraftError] = useState("");
   const [bookmarklet, setBookmarklet] = useState("");
   const bookmarkRef = useRef<HTMLAnchorElement>(null);
 
@@ -267,7 +282,6 @@ export default function ReviewApp() {
   const shoppingLinkInfo = useMemo(() => {
     try { return getShoppingLinkInfo(shoppingUrl); } catch { return null; }
   }, [shoppingUrl]);
-  const isGmarketProduct = shoppingLinkInfo?.kind === "gmarket-product";
 
   const updateItem = (id: string, patch: Partial<ReviewItem>) => {
     setItems((current) => current.map((item) => {
@@ -321,15 +335,39 @@ export default function ReviewApp() {
   }, [applyOrder]);
 
   const analyzeShoppingLink = async () => {
-    if (shoppingLinkInfo?.kind === "gmarket-product") {
-      setShoppingUrl(shoppingLinkInfo.sourceUrl);
-      setLinkKind("needs-browser");
-      setLinkStatus(`G마켓 상품번호 ${shoppingLinkInfo.productId}을 확인했어요. 아래에서 상품을 연 뒤 초록 버튼을 사용하세요.`);
-      return;
-    }
     setLinkKind("working");
-    setLinkStatus("공개된 상품 카드 구조와 금액을 확인하고 있어요…");
+    setLinkDraft(null);
+    setDraftError("");
+    setLinkStatus("상품번호와 공개된 상품 정보를 확인하고 있어요…");
     try {
+      if (shoppingLinkInfo?.kind === "gmarket-product") {
+        setShoppingUrl(shoppingLinkInfo.sourceUrl);
+        const response = await fetch(`/api/product-draft?mall=gmarket&productId=${encodeURIComponent(shoppingLinkInfo.productId)}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("상품 링크 형식을 확인해 주세요.");
+        const payload = await response.json() as { name?: string; price?: number; lookupStatus?: string };
+        const name = String(payload.name ?? "");
+        const unitPrice = safeNumber(payload.price, 0);
+        setLinkDraft({
+          sourceUrl: shoppingLinkInfo.sourceUrl,
+          mall: "G마켓",
+          productId: shoppingLinkInfo.productId,
+          name,
+          spec: "",
+          unit: "개",
+          quantity: 1,
+          unitPrice,
+          paidTotal: "",
+          lookupStatus: String(payload.lookupStatus ?? "confirmation-required"),
+        });
+        const found = Boolean(name && unitPrice);
+        setLinkKind(found ? "success" : "needs-confirmation");
+        setLinkStatus(found
+          ? "상품명과 공개 판매가를 채웠어요. 수량·옵션·실제 단가만 확인해 주세요."
+          : `G마켓 상품번호 ${shoppingLinkInfo.productId}을 확인했어요. 링크에서 확인되지 않은 값만 입력해 주세요.`);
+        return;
+      }
       const order = await analyzePublicShoppingLink(shoppingUrl);
       const error = applyOrder(order, "쇼핑몰 링크");
       if (error) throw new Error(error);
@@ -337,9 +375,65 @@ export default function ReviewApp() {
       setLinkStatus("링크에서 구조화된 상품 정보를 가져왔어요. 금액을 검수해 주세요.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "링크를 읽지 못했습니다.";
-      setLinkKind(/로그인|외부 읽기|V-L01/.test(message) ? "needs-browser" : "error");
-      setLinkStatus(message);
+      if (normalizedShoppingUrl) {
+        const url = new URL(normalizedShoppingUrl);
+        setLinkDraft({
+          sourceUrl: normalizedShoppingUrl,
+          mall: url.hostname.replace(/^www\./, ""),
+          productId: "상품 링크",
+          name: "",
+          spec: "",
+          unit: "개",
+          quantity: 1,
+          unitPrice: 0,
+          paidTotal: "",
+          lookupStatus: "confirmation-required",
+        });
+        setLinkKind("needs-confirmation");
+        setLinkStatus("외부에서 읽지 못한 값만 입력하면 견적 초안을 만들 수 있어요.");
+      } else {
+        setLinkKind("error");
+        setLinkStatus(message);
+      }
     }
+  };
+
+  const updateLinkDraft = (patch: Partial<LinkDraft>) => {
+    setLinkDraft((current) => current ? { ...current, ...patch } : current);
+    setDraftError("");
+  };
+
+  const addLinkDraft = () => {
+    if (!linkDraft) return;
+    const name = linkDraft.name.trim();
+    const quantity = safeNumber(linkDraft.quantity, 0);
+    const unitPrice = safeNumber(linkDraft.unitPrice, 0);
+    const paidTotal = safeNumber(linkDraft.paidTotal, 0);
+    if (!name) { setDraftError("상품명을 입력해 주세요."); return; }
+    if (!Number.isInteger(quantity) || quantity < 1) { setDraftError("수량은 1개 이상이어야 합니다."); return; }
+    if (unitPrice < 1) { setDraftError("실제 구매 예정 단가를 입력해 주세요."); return; }
+    const error = applyOrder({
+      mall: linkDraft.mall,
+      sourceUrl: linkDraft.sourceUrl,
+      orderNo: linkDraft.productId === "상품 링크" ? "상품 링크" : `상품번호 ${linkDraft.productId}`,
+      paidTotal: paidTotal || quantity * unitPrice,
+      _warnings: paidTotal ? [] : ["V08"],
+      _extractedBy: "confirmed-link-draft",
+      items: [{
+        내용: name,
+        규격: linkDraft.spec.trim(),
+        단위: linkDraft.unit.trim() || "개",
+        수량: quantity,
+        단가: unitPrice,
+        금액: quantity * unitPrice,
+        _rawName: name,
+        _warnings: [],
+        excluded: false,
+      }],
+    }, "상품 링크 초안");
+    if (error) { setDraftError(error); return; }
+    setLinkKind("success");
+    setLinkStatus("확인한 상품을 검수표에 추가했어요. 결제 총액만 마지막으로 대조해 주세요.");
   };
 
   const dragBookmarklet = (event: DragEvent<HTMLAnchorElement>) => {
@@ -351,10 +445,8 @@ export default function ReviewApp() {
 
   const explainBookmarklet = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
-    setLinkKind("needs-browser");
-    setLinkStatus(isGmarketProduct
-      ? "초록 버튼을 북마크바로 끌어놓고, 정상 표시된 G마켓 상품 화면에서 누르세요."
-      : "이 버튼을 북마크바로 끌어놓은 뒤 쇼핑몰 주문 화면에서 누르세요.");
+    setLinkKind("needs-confirmation");
+    setLinkStatus("현재 화면 보내기는 로그인 주문을 한꺼번에 가져올 때만 쓰는 고급 기능입니다.");
   };
 
   const saveReview = () => {
@@ -397,20 +489,38 @@ export default function ReviewApp() {
 
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
-          <div className="quick-start-copy"><span>STEP 1 · 추천</span><h2 id="quick-start-title">쇼핑몰 장바구니·주문 링크로 시작하세요</h2><p>공개 링크는 바로 분석하고, 로그인 링크는 현재 화면의 상품 카드만 안전하게 가져옵니다.</p></div>
+          <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">상품 링크만 붙여넣으세요</h2><p>상품번호와 공개 정보를 먼저 채우고, 링크에 없는 수량·옵션·실제 단가만 확인합니다.</p></div>
           <form className="link-import-form" onSubmit={(event) => { event.preventDefault(); void analyzeShoppingLink(); }}>
-            <label htmlFor="shopping-url">쇼핑몰 링크</label>
-            <div><input id="shopping-url" type="url" value={shoppingUrl} onChange={(event) => setShoppingUrl(event.target.value)} placeholder="https://… 상품·장바구니·주문 상세 링크" autoComplete="url" /><button type="submit" disabled={!shoppingUrl.trim() || linkKind === "working"}>{linkKind === "working" ? "확인 중…" : isGmarketProduct ? "G마켓 가져오기 안내" : "링크에서 가져오기"}</button></div>
+            <label htmlFor="shopping-url">쇼핑몰 상품 링크</label>
+            <div><input id="shopping-url" type="url" value={shoppingUrl} onChange={(event) => { setShoppingUrl(event.target.value); setLinkDraft(null); setDraftError(""); setLinkKind("idle"); setLinkStatus("상품 링크를 붙여넣으면 견적 초안을 만들어요."); }} placeholder="https://… 상품 링크를 붙여넣으세요" autoComplete="url" /><button type="submit" disabled={!shoppingUrl.trim() || linkKind === "working"}>{linkKind === "working" ? "확인 중…" : "상품 초안 만들기"}</button></div>
           </form>
           <div className={`link-status ${linkKind}`} aria-live="polite"><span aria-hidden="true" />{linkStatus}</div>
-          <div className={`login-link-flow ${isGmarketProduct ? "gmarket-flow" : ""}`}>
-            <div>{isGmarketProduct && <span className="mall-badge">G마켓 · 상품번호 {shoppingLinkInfo.productId}</span>}<strong>{isGmarketProduct ? "G마켓은 현재 상품 화면에서 가져와요" : "로그인이 필요한 주문 링크라면"}</strong><p>{isGmarketProduct ? "외부 읽기를 반복하지 않습니다. 상품 화면에서 초록 버튼을 누르면 상품명과 공개 판매가를 가져오고, 수량·옵션·최종 결제금액은 확인 항목으로 남깁니다." : "처음 한 번만 초록 버튼을 북마크바로 끌어놓으세요. 이후 쇼핑몰 화면에서 누르면 원본 링크와 구조화된 상품 정보가 함께 넘어옵니다."}</p></div>
-            <div className="login-link-actions">
-              <a className={!normalizedShoppingUrl ? "disabled" : ""} href={normalizedShoppingUrl || "#"} target={normalizedShoppingUrl ? "_blank" : undefined} rel="noreferrer" onClick={(event) => { if (!normalizedShoppingUrl) event.preventDefault(); }}>1. {isGmarketProduct ? "G마켓 상품 열기" : "쇼핑몰 링크 열기"}</a>
-              <a ref={bookmarkRef} className="bookmarklet-button" href="#" draggable onDragStart={dragBookmarklet} onClick={explainBookmarklet}>2. 현재 화면 보내기 ↗</a>
-            </div>
-          </div>
-          <div className="quick-start-fallback"><span>링크가 잘 안 되면</span><button type="button" onClick={() => setImportOpen(true)}>PDF·엑셀·캡처 올리기</button><button type="button" onClick={() => setImportOpen(true)}>주문 화면 직접 붙여넣기</button></div>
+          {linkDraft && (
+            <section className="link-draft-card" aria-labelledby="link-draft-title">
+              <div className="link-draft-heading">
+                <div><span className="mall-badge">{linkDraft.mall} · {linkDraft.productId}</span><h3 id="link-draft-title">부족한 값만 확인해 주세요</h3><p>{linkDraft.lookupStatus === "found" ? "공개 상품정보를 먼저 채웠습니다. 실제 구매 조건과 같은지 확인하세요." : "쇼핑몰이 자동 조회를 막아도 상품 링크는 보존했습니다. 원본을 보며 빈칸만 입력하세요."}</p></div>
+                <a href={linkDraft.sourceUrl} target="_blank" rel="noreferrer">원본 상품 확인 ↗</a>
+              </div>
+              <div className="link-draft-grid">
+                <label className="draft-name">내용 <b>필수</b><input value={linkDraft.name} onChange={(event) => updateLinkDraft({ name: event.target.value })} placeholder="상품명을 입력하세요" /></label>
+                <label>규격·옵션 <b>선택</b><input value={linkDraft.spec} onChange={(event) => updateLinkDraft({ spec: event.target.value })} placeholder="예: 250mL · 파란색" /></label>
+                <label>단위 <b>필수</b><input value={linkDraft.unit} onChange={(event) => updateLinkDraft({ unit: event.target.value })} placeholder="개" /></label>
+                <label>수량 <b>필수</b><input type="number" min="1" step="1" value={linkDraft.quantity} onChange={(event) => updateLinkDraft({ quantity: safeNumber(event.target.value, 1) })} /></label>
+                <label>예상단가 <b>필수</b><span className="money-field"><input type="number" min="0" step="1" value={linkDraft.unitPrice || ""} onChange={(event) => updateLinkDraft({ unitPrice: safeNumber(event.target.value) })} placeholder="0" /><i>원</i></span></label>
+                <label>결제 총액 <b>선택</b><span className="money-field"><input type="number" min="0" step="1" value={linkDraft.paidTotal} onChange={(event) => updateLinkDraft({ paidTotal: event.target.value })} placeholder="쿠폰·배송비 포함" /><i>원</i></span></label>
+              </div>
+              <div className="link-draft-footer">
+                <div><span>예상금액</span><strong>{won(linkDraft.quantity * linkDraft.unitPrice)}원</strong><small>수량 × 예상단가</small></div>
+                <button type="button" onClick={addLinkDraft}>확인하고 검수표에 추가</button>
+              </div>
+              {draftError && <p className="draft-error" role="alert">{draftError}</p>}
+            </section>
+          )}
+          <div className="quick-start-fallback"><span>여러 상품이 있는 장바구니·주문이라면</span><button type="button" onClick={() => setImportOpen(true)}>PDF·엑셀·캡처 올리기</button><button type="button" onClick={() => setImportOpen(true)}>주문 화면 직접 붙여넣기</button></div>
+          <details className="advanced-link-tool">
+            <summary>고급 기능 · 로그인 주문 화면을 한꺼번에 가져오기</summary>
+            <div><p>여러 상품을 파일로 받을 수 없을 때만 사용합니다. 북마크바 등록이 필요하므로 일반 상품 링크에는 위의 ‘상품 초안 만들기’를 권장합니다.</p><div className="login-link-actions"><a className={!normalizedShoppingUrl ? "disabled" : ""} href={normalizedShoppingUrl || "#"} target={normalizedShoppingUrl ? "_blank" : undefined} rel="noreferrer" onClick={(event) => { if (!normalizedShoppingUrl) event.preventDefault(); }}>쇼핑몰 링크 열기</a><a ref={bookmarkRef} className="bookmarklet-button" href="#" draggable onDragStart={dragBookmarklet} onClick={explainBookmarklet}>현재 화면 보내기 ↗</a></div></div>
+          </details>
         </section>
         {hasItems ? <>
         <div className="page-heading">
@@ -475,7 +585,7 @@ export default function ReviewApp() {
         <section className="help-stack" aria-label="가져오기 도움말">
           <details>
             <summary><span>정확하게 가져오는 권장 순서</span><b>+</b></summary>
-            <div><p><strong>1순위</strong> 장바구니 공유 링크 또는 공개 주문 링크를 붙여넣습니다.</p><p><strong>2순위</strong> 로그인 주문은 초록 버튼을 북마크바에 한 번만 끌어놓고, 주문 화면에서 누릅니다. 북마크바가 안 보이면 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>를 누르세요.</p><p><strong>3순위</strong> 쇼핑몰에서 내려받은 엑셀·PDF를 올립니다. 캡처는 글자를 크게 확대한 원본을 사용하세요.</p></div>
+            <div><p><strong>상품 1개</strong> 링크를 붙여넣고 자동으로 채워진 값과 수량·실제 단가를 확인합니다.</p><p><strong>여러 상품</strong> 쇼핑몰에서 내려받은 엑셀·PDF를 올립니다. 파일이 없으면 글자를 크게 확대한 장바구니 캡처를 사용하세요.</p><p><strong>마지막 수단</strong> 로그인 주문 화면 한꺼번에 가져오기는 고급 기능에서 이용할 수 있습니다.</p></div>
           </details>
           <details>
             <summary><span>왜 주문 화면 붙여넣기는 보조 기능인가요?</span><b>+</b></summary>
