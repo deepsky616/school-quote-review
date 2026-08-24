@@ -2,6 +2,10 @@ const TOTAL_LABEL = /(총\s*결제|최종\s*결제|결제\s*(?:예정\s*)?금액
 const HEADER_LABEL = /^(상품|상품명|품명|내용|옵션|규격|수량|단가|금액|결제금액|주문금액)$/i;
 const CONTROL_LABEL = /^(장바구니|주문내역|주문상세|배송조회|리뷰쓰기|교환|반품|취소|문의|구매확정|다시 구매|닫기|확인)$/i;
 const FOREIGN_CURRENCY = /(?:US?D|JPY|EUR|CNY|[$€¥])/i;
+const MARKDOWN_LINK = /^\s*(?:-\s*)?\[([^\]]+)\]\((https?:\/\/[^)]+)\)\s*$/i;
+const SITE_HEADER = /^(?:아이스크림몰|쿠팡|G마켓|YES24)(?:\s|$).*https?:\/\//i;
+const OPTION_LINE = /^(?:선택|색상|옵션)\s*[:：]?/i;
+const QUANTITY_UNITS = "개|세트|팩|박스|권|매|병|봉|묶음|식";
 
 const toNumber = (value = "") => {
   const parsed = Number(String(value).replace(/[^\d.-]/g, ""));
@@ -13,6 +17,320 @@ const moneyValues = (line) => {
   return matches.map(toNumber).filter((value) => value >= 0);
 };
 
+const cleanScrapedLine = (value) => String(value ?? "")
+  .replace(/\*\*/g, "")
+  .replace(/^\\\s*$/, "")
+  .replace(/\\_/g, "_")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const cleanScrapedUrl = (value) => String(value ?? "")
+  .replace(/\\([&?#])/g, "$1")
+  .trim();
+
+const isNonProductLine = (value) => {
+  const line = cleanScrapedLine(value);
+  if (!line || SITE_HEADER.test(line) || HEADER_LABEL.test(line) || CONTROL_LABEL.test(line)) return true;
+  if (/^[\d.,%+\s]+$/.test(line)) return true;
+  if (/^(?:상품\s*금액|쿠폰\s*(?:적용|할인)|할인\s*\d|무료배송|배송비|로켓배송\s*상품|합배송\s*상품|삭제|내일\b|품절임박|만족했어요|한달구매|판매자(?:로켓)?|도착|주문\s*가능)/i.test(line)) return true;
+  if (/(?:캐시|포인트)\s*적립|YES포인트|이상\s*(?:구매\s*시\s*)?(?:배송비\s*)?무료|\d+\s*%\s*$|\d+\s*개당/i.test(line)) return true;
+  return TOTAL_LABEL.test(line);
+};
+
+const makeItem = ({ name, spec = "", unit = "개", quantity = 1, amount, sourceUrl, raw, warnings = [] }) => {
+  const safeQuantity = Math.max(1, Math.round(quantity));
+  const unitPrice = Math.round(amount / safeQuantity);
+  const itemWarnings = [...warnings];
+  if (amount !== safeQuantity * unitPrice && !itemWarnings.includes("V06")) itemWarnings.push("V06");
+  return {
+    내용: name,
+    규격: spec,
+    단위: unit,
+    수량: safeQuantity,
+    단가: unitPrice,
+    금액: amount,
+    _rawName: raw,
+    _warnings: itemWarnings,
+    ...(sourceUrl ? { sourceUrl } : {}),
+    excluded: false,
+  };
+};
+
+const shippingItemFromLine = (line, sourceUrl) => {
+  if (!/배송비/i.test(line)) return null;
+  const values = moneyValues(line);
+  const shippingPrice = values[values.length - 1] ?? 0;
+  if (!shippingPrice) return null;
+  const threshold = line.match(/([\d,]+)\s*원\s*이상\s*(?:구매\s*시\s*)?배송비\s*무료/i);
+  return makeItem({
+    name: "배송비",
+    spec: threshold ? `${threshold[1]}원 이상 구매 시 무료` : "",
+    unit: "건",
+    quantity: 1,
+    amount: shippingPrice,
+    sourceUrl,
+    raw: line,
+  });
+};
+
+function scrapedProductBlocks(text) {
+  const blocks = [];
+  let current = null;
+  for (const rawLine of String(text ?? "").split("\n")) {
+    const line = cleanScrapedLine(rawLine);
+    const header = line.match(MARKDOWN_LINK);
+    if (header) {
+      current = { name: header[1].trim(), sourceUrl: cleanScrapedUrl(header[2]), lines: [] };
+      blocks.push(current);
+      continue;
+    }
+    if (/^-{3,}$/.test(line)) { current = null; continue; }
+    if (current && line) current.lines.push(line);
+  }
+  return blocks;
+}
+
+function scrapedProductItems(text) {
+  return scrapedProductBlocks(text).flatMap((block) => {
+    const quantityIndex = block.lines.findIndex((line) => /^수량\s*[:：]?\s*\d+/i.test(line));
+    const quantityLine = quantityIndex >= 0 ? block.lines[quantityIndex] : "";
+    const quantityMatch = quantityLine.match(/^수량\s*[:：]?\s*(\d{1,4})\s*(개|세트|팩|박스|권|매|병|봉|묶음|식)?/i);
+    const priceLine = block.lines.find((line) => /상품\s*금액\s*[:：]?/i.test(line));
+    const prices = moneyValues(priceLine ?? "");
+    if (!quantityMatch || !prices.length) return [];
+
+    const quantity = Math.max(1, toNumber(quantityMatch[1]));
+    const unit = quantityMatch[2] || "개";
+    const amount = prices[prices.length - 1];
+    const spec = block.lines.slice(0, quantityIndex)
+      .filter((line) => !/^(?:쿠폰\s*적용|배송|판매자|주문|결제)/i.test(line))
+      .map((line) => line.replace(/^(선택|색상|옵션)(?=\S)/, "$1 "))
+      .join(" · ");
+    const item = makeItem({
+      name: block.name,
+      spec,
+      unit,
+      quantity,
+      amount,
+      sourceUrl: block.sourceUrl,
+      raw: `${block.name} ${priceLine}`,
+    });
+
+    const shippingLine = block.lines.find((line) => /배송비/i.test(line) && moneyValues(line).length > 0);
+    const shippingItem = shippingItemFromLine(shippingLine ?? "", block.sourceUrl);
+    return shippingItem ? [item, shippingItem] : [item];
+  });
+}
+
+function catalogProductItems(text) {
+  const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
+  const quantityIndexes = lines.flatMap((line, index) => (
+    /^단일\s*상품\s*\//i.test(line)
+    || new RegExp(`\\/\\s*\\d{1,4}\\s*(?:${QUANTITY_UNITS})$`, "i").test(line)
+  ) && moneyValues(lines[index + 1] ?? "").length > 0 ? [index] : []);
+  return quantityIndexes.flatMap((quantityIndex) => {
+    const quantityLine = lines[quantityIndex];
+    const quantityMatch = quantityLine.match(new RegExp(`\\/\\s*(\\d{1,4})\\s*(${QUANTITY_UNITS})?\\s*$`, "i"));
+    const priceLine = lines.slice(quantityIndex + 1, quantityIndex + 4)
+      .find((line) => moneyValues(line).length > 0 && !/배송|적립|포인트/i.test(line));
+    const prices = moneyValues(priceLine ?? "");
+    if (!quantityMatch || !prices.length) return [];
+
+    const reversedNameLines = [];
+    for (let cursor = quantityIndex - 1; cursor >= 0 && reversedNameLines.length < 3; cursor -= 1) {
+      const line = lines[cursor];
+      if (/^합배송\s*상품$/i.test(line)) continue;
+      if (SITE_HEADER.test(line) || /배송|무료|^단일\s*상품|\d[\d,]*\s*원/.test(line)) break;
+      if (isNonProductLine(line)) continue;
+      reversedNameLines.push(line);
+    }
+    const nameLines = reversedNameLines.reverse().slice(-2);
+    if (!nameLines.length) return [];
+
+    const [firstName, secondName] = nameLines.length === 1 ? ["", nameLines[0]] : nameLines;
+    const name = firstName && !secondName.toLowerCase().startsWith(firstName.toLowerCase())
+      ? `${firstName} ${secondName}`
+      : secondName;
+    const quantity = Math.max(1, toNumber(quantityMatch[1]));
+    const amount = prices[prices.length - 1];
+    const explicitSpec = quantityLine.replace(/\s*\/\s*\d{1,4}\s*(?:개|세트|팩|박스|권|매|병|봉|묶음|식)?\s*$/i, "").trim();
+    return [makeItem({
+      name,
+      spec: /^단일\s*상품$/i.test(explicitSpec) ? "단일상품" : explicitSpec,
+      unit: quantityMatch[2] || "개",
+      quantity,
+      amount,
+      raw: `${name} ${quantityLine} ${priceLine}`,
+    })];
+  });
+}
+
+const sourceUrlFor = (text, hostname) => {
+  const urls = String(text ?? "").match(/https?:\/\/[^\s)\]]+/gi) ?? [];
+  const found = urls.map(cleanScrapedUrl).find((url) => url.toLowerCase().includes(hostname.toLowerCase()));
+  return found;
+};
+
+function coupangProductItems(text) {
+  const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
+  const productIndexes = lines.flatMap((line, index) => /옵션\s*[:：]/i.test(line) && !isNonProductLine(line) ? [index] : []);
+  if (!productIndexes.length) return [];
+  const sourceUrl = sourceUrlFor(text, "coupang.com");
+
+  return productIndexes.flatMap((productIndex, position) => {
+    const nextProductIndex = productIndexes[position + 1] ?? lines.length;
+    const nextSiteIndex = lines.findIndex((line, index) => index > productIndex && SITE_HEADER.test(line));
+    const blockEnd = nextSiteIndex >= 0 ? Math.min(nextProductIndex, nextSiteIndex) : nextProductIndex;
+    const block = lines.slice(productIndex, blockEnd);
+    const [rawTitle, rawSpec = ""] = lines[productIndex].split(/옵션\s*[:：]\s*/i, 2);
+    let name = rawTitle.replace(/^(?:star\s+starred\s*)+/i, "").trim();
+    if (!name) {
+      for (let cursor = productIndex - 1; cursor >= Math.max(0, productIndex - 3); cursor -= 1) {
+        if (!isNonProductLine(lines[cursor]) && !moneyValues(lines[cursor]).length) {
+          name = lines[cursor].replace(/^(?:star\s+starred\s*)+/i, "").trim();
+          break;
+        }
+      }
+    }
+
+    const priceCandidates = block.flatMap((line) => {
+      if (/무료배송|배송비|주문\s*가능|쿠폰할인\s*적용|캐시\s*적립|포인트|\d+\s*개당/i.test(line)) return [];
+      return moneyValues(line);
+    });
+    const amount = priceCandidates[priceCandidates.length - 1] ?? 0;
+    if (!name || !amount) return [];
+
+    const perUnitLine = block.find((line) => /\d+\s*개당\s*[\d,]+\s*원/i.test(line));
+    const perUnitMatch = perUnitLine?.match(/\d+\s*개당\s*([\d,]+)\s*원/i);
+    const perUnitPrice = toNumber(perUnitMatch?.[1]);
+    const inferredQuantity = perUnitPrice > 0 && amount % perUnitPrice === 0 ? amount / perUnitPrice : 1;
+    const warnings = perUnitPrice > 0 && inferredQuantity === 1 && amount !== perUnitPrice ? ["V11"] : [];
+    if (!perUnitPrice) warnings.push("V04");
+
+    const item = makeItem({
+      name,
+      spec: rawSpec.trim(),
+      unit: "개",
+      quantity: inferredQuantity,
+      amount,
+      sourceUrl,
+      raw: block.join(" "),
+      warnings,
+    });
+    const shipping = block.map((line) => shippingItemFromLine(line, sourceUrl)).find(Boolean);
+    return shipping ? [item, shipping] : [item];
+  });
+}
+
+function gmarketPlainProductItems(text) {
+  const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
+  if (lines.some((line) => MARKDOWN_LINK.test(line)) || !lines.some((line) => /상품\s*금액/i.test(line))) return [];
+  const quantityIndexes = lines.flatMap((line, index) => /^수량\s*[:：]?\s*\d+/i.test(line) ? [index] : []);
+  const sourceUrl = sourceUrlFor(text, "gmarket.co.kr");
+
+  return quantityIndexes.flatMap((quantityIndex, position) => {
+    const quantityLine = lines[quantityIndex];
+    const quantityMatch = quantityLine.match(new RegExp(`^수량\\s*[:：]?\\s*(\\d{1,4})\\s*(${QUANTITY_UNITS})?`, "i"));
+    const nextQuantityIndex = quantityIndexes[position + 1] ?? lines.length;
+    const nextSiteIndex = lines.findIndex((line, index) => index > quantityIndex && SITE_HEADER.test(line));
+    const blockEnd = nextSiteIndex >= 0 ? Math.min(nextQuantityIndex, nextSiteIndex) : nextQuantityIndex;
+    const block = lines.slice(quantityIndex, blockEnd);
+    const priceIndex = block.findIndex((line) => /상품\s*금액/i.test(line));
+    if (!quantityMatch || priceIndex < 0) return [];
+
+    const priceCandidates = [...moneyValues(block[priceIndex])];
+    for (let cursor = priceIndex + 1; cursor < block.length; cursor += 1) {
+      if (!/^[\d,]+\s*원$/i.test(block[cursor])) break;
+      priceCandidates.push(...moneyValues(block[cursor]));
+    }
+    const amount = priceCandidates[priceCandidates.length - 1] ?? 0;
+    if (!amount) return [];
+
+    const reversedNameLines = [];
+    for (let cursor = quantityIndex - 1; cursor >= 0 && reversedNameLines.length < 3; cursor -= 1) {
+      const line = lines[cursor];
+      if (SITE_HEADER.test(line) || /배송비|무료배송|상품\s*금액|^수량\s*[:：]?|^[\d,]+\s*원$/i.test(line)) break;
+      if (isNonProductLine(line)) continue;
+      reversedNameLines.push(line);
+    }
+    const candidates = reversedNameLines.reverse();
+    const spec = candidates.filter((line) => OPTION_LINE.test(line))
+      .map((line) => line.replace(/^(선택|색상|옵션)(?=\S)/i, "$1 "))
+      .join(" · ");
+    const nameLines = candidates.filter((line) => !OPTION_LINE.test(line)).slice(-2);
+    const name = nameLines.join(" ").trim();
+    if (!name) return [];
+
+    const item = makeItem({
+      name,
+      spec,
+      unit: quantityMatch[2] || "개",
+      quantity: toNumber(quantityMatch[1]),
+      amount,
+      sourceUrl,
+      raw: `${name} ${quantityLine} ${block.slice(priceIndex, priceIndex + 3).join(" ")}`,
+    });
+    const shippingLine = block.find((line) => /배송비/i.test(line));
+    const shipping = shippingItemFromLine(shippingLine ?? "", sourceUrl);
+    return shipping ? [item, shipping] : [item];
+  });
+}
+
+const cleanBookName = (value) => cleanScrapedLine(value)
+  .replace(/^\[도서\]\s*/i, "")
+  .replace(/\s*새창\s*/gi, " ")
+  .replace(/\s*소득공제\s*$/i, "")
+  .replace(/\s+/g, " ")
+  .trim();
+
+function yes24ProductItems(text) {
+  const sourceUrl = sourceUrlFor(text, "yes24.com");
+  const rawLines = String(text ?? "").replace(/\r/g, "").split("\n");
+  const headerIndex = rawLines.findIndex((line) => /상품명/.test(line) && /정가/.test(line) && /수량/.test(line) && /할인금액/.test(line) && /합계/.test(line));
+  const tableItems = [];
+
+  if (headerIndex >= 0 && /\t|\|/.test(rawLines[headerIndex])) {
+    const separator = /\t|\s*\|\s*/;
+    for (const rawLine of rawLines.slice(headerIndex + 1)) {
+      let cells = rawLine.split(separator).map(cleanScrapedLine);
+      if (cells.length >= 6 && !cells[0]) cells = cells.slice(1);
+      if (cells.length < 5 || !/\d/.test(cells[2] ?? "")) continue;
+      const name = cleanBookName(cells[0]);
+      const quantity = toNumber(cells[2]);
+      const discountPrice = moneyValues(cells[3] ?? "")[0] ?? 0;
+      const amount = moneyValues(cells[4] ?? "")[0] ?? 0;
+      if (!name || !quantity || (!discountPrice && !amount)) continue;
+      tableItems.push(makeItem({
+        name,
+        spec: "도서",
+        unit: "권",
+        quantity,
+        amount: amount || discountPrice * quantity,
+        sourceUrl,
+        raw: rawLine,
+      }));
+    }
+  }
+  if (tableItems.length) return tableItems;
+
+  const lines = rawLines.map(cleanScrapedLine).filter(Boolean);
+  const bookIndexes = lines.flatMap((line, index) => /^\[도서\]/i.test(line) ? [index] : []);
+  return bookIndexes.flatMap((bookIndex, position) => {
+    const block = lines.slice(bookIndex, bookIndexes[position + 1] ?? lines.length);
+    const quantityIndex = block.findIndex((line, index) => index > 0 && /^\d{1,4}$/.test(line));
+    if (quantityIndex < 0) return [];
+    const quantity = toNumber(block[quantityIndex]);
+    const amountLines = block.slice(quantityIndex + 1).filter((line) => moneyValues(line).length > 0 && !/배송|포인트/i.test(line));
+    const discountPrice = amountLines.find((line) => /할인/i.test(line));
+    const totalLine = amountLines.find((line) => !/할인/i.test(line));
+    const unitPrice = moneyValues(discountPrice ?? "")[0] ?? 0;
+    const amount = moneyValues(totalLine ?? "")[0] ?? unitPrice * quantity;
+    const name = cleanBookName(block[0]);
+    if (!name || !amount) return [];
+    return [makeItem({ name, spec: "도서", unit: "권", quantity, amount, sourceUrl, raw: block.join(" ") })];
+  });
+}
+
 const cleanName = (value) => value
   .replace(/(?:₩\s*\d[\d,]*|\d[\d,]*\s*원|\d{1,3}(?:,\d{3})+)/g, " ")
   .replace(/(?:판매가|상품금액|주문금액|금액|가격|단가)\s*[:：]?/gi, " ")
@@ -22,8 +340,8 @@ const cleanName = (value) => value
 
 const isNameCandidate = (line) => {
   const value = cleanName(line);
-  if (value.length < 2 || HEADER_LABEL.test(value) || CONTROL_LABEL.test(value)) return false;
-  if (/^(옵션|규격|수량|배송|도착|판매자|주문번호|결제|쿠폰|할인|포인트)\b/i.test(value)) return false;
+  if (value.length < 2 || isNonProductLine(value)) return false;
+  if (/^(옵션|규격|수량|배송|무료배송|도착|판매자|주문번호|결제|쿠폰|할인|포인트|캐시)\b/i.test(value)) return false;
   return !TOTAL_LABEL.test(value);
 };
 
@@ -79,6 +397,10 @@ function textItem(lines, index) {
 
   const amount = prices[prices.length - 1];
   if (amount <= 0) return null;
+  if (/배송비/i.test(line)) {
+    return shippingItemFromLine(line);
+  }
+  if (isNonProductLine(line)) return null;
   const quantity = quantityFrom(line);
   const qty = quantity.value;
   let name = cleanName(line);
@@ -155,14 +477,22 @@ export function parseOrderText(text, options = {}) {
     .map((cell) => cell.replace(/ +/g, " ").trim())
     .join("\t")
     .trim()).filter(Boolean);
+  const scraped = scrapedProductItems(normalized);
+  const catalog = catalogProductItems(normalized);
+  const coupang = coupangProductItems(normalized);
+  const gmarketPlain = scraped.length ? [] : gmarketPlainProductItems(normalized);
+  const yes24 = yes24ProductItems(normalized);
+  const specialized = [...scraped, ...catalog, ...coupang, ...gmarketPlain, ...yes24];
   const structured = lines.map(structuredItem).filter(Boolean);
-  const candidates = structured.length
+  const candidates = specialized.length
+    ? specialized
+    : structured.length
     ? structured
     : lines.map((_, index) => textItem(lines, index)).filter(Boolean);
 
   const seen = new Set();
   const items = candidates.filter((item) => {
-    const key = `${item.내용}|${item.수량}|${item.금액}`;
+    const key = `${item.내용}|${item.수량}|${item.금액}|${item.sourceUrl ?? ""}|${item._rawName ?? ""}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -179,11 +509,14 @@ export function parseOrderText(text, options = {}) {
   const warnings = [];
   if (!suppliedTotal && !extractedTotal) warnings.push("V08");
   if (FOREIGN_CURRENCY.test(normalized)) warnings.push("V12");
-  if (items.length === 1 && structured.length === 0) items[0]._warnings.push("V03");
+  if (items.length === 1 && structured.length === 0 && specialized.length === 0) items[0]._warnings.push("V03");
+
+  const detectedTextUrl = (normalized.match(/https?:\/\/[^\s)\]]+/i) ?? [])[0];
+  const detectedSourceUrl = options.sourceUrl || specialized.find((item) => item.sourceUrl)?.sourceUrl || (detectedTextUrl ? cleanScrapedUrl(detectedTextUrl) : undefined);
 
   return {
-    mall: mallFromUrl(options.sourceUrl),
-    sourceUrl: options.sourceUrl || undefined,
+    mall: mallFromUrl(detectedSourceUrl),
+    sourceUrl: detectedSourceUrl || undefined,
     orderNo: findOrderNo(lines),
     capturedAt: new Date().toISOString(),
     paidTotal,

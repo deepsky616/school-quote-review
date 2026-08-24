@@ -2,7 +2,9 @@
 
 import { DragEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ImportDialog from "./ImportDialog.tsx";
+import { importImage } from "./fileImport.mjs";
 import { analyzePublicShoppingLink, createBookmarklet, decodeBookmarkletCapture, getShoppingLinkInfo, parseShoppingLinks } from "./linkImport.mjs";
+import { chooseCapturedProductCandidate } from "./screenCapture.mjs";
 
 type ReviewItem = {
   id: string;
@@ -44,6 +46,13 @@ type LinkDraft = {
   confidence: number;
   priceSource: string;
   notes: string[];
+};
+
+type ScreenCaptureState = {
+  draftId: string | null;
+  kind: "idle" | "requesting" | "recognizing" | "success" | "error";
+  message: string;
+  previewUrl: string | null;
 };
 
 const initialItems: ReviewItem[] = [];
@@ -281,6 +290,41 @@ function download(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+async function captureSelectedProductScreen() {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error("이 브라우저는 화면 선택 캡처를 지원하지 않습니다. 데스크톱 Chrome 또는 Edge에서 이용해 주세요.");
+  }
+
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: { displaySurface: "browser" },
+    audio: false,
+  });
+  try {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("선택한 상품 화면을 읽지 못했습니다."));
+      video.srcObject = stream;
+    });
+    await video.play();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    if (!video.videoWidth || !video.videoHeight) throw new Error("선택한 화면의 크기를 확인하지 못했습니다.");
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("상품 화면 이미지를 만들지 못했습니다.");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("상품 화면 이미지를 만들지 못했습니다.")), "image/png"));
+    return new File([blob], `상품화면_${Date.now()}.png`, { type: "image/png" });
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+}
+
 export default function ReviewApp() {
   const [items, setItems] = useState(initialItems);
   const [meta, setMeta] = useState(initialMeta);
@@ -294,7 +338,9 @@ export default function ReviewApp() {
   const [draftBudget, setDraftBudget] = useState("");
   const [draftError, setDraftError] = useState("");
   const [bookmarklet, setBookmarklet] = useState("");
+  const [screenCapture, setScreenCapture] = useState<ScreenCaptureState>({ draftId: null, kind: "idle", message: "", previewUrl: null });
   const bookmarkRef = useRef<HTMLAnchorElement>(null);
+  const capturePreviewRef = useRef<string | null>(null);
 
   const totals = useMemo(() => {
     const included = items.filter((item) => !item.excluded);
@@ -365,6 +411,10 @@ export default function ReviewApp() {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
   }, [applyOrder]);
+
+  useEffect(() => () => {
+    if (capturePreviewRef.current) URL.revokeObjectURL(capturePreviewRef.current);
+  }, []);
 
   const analyzeShoppingLink = async () => {
     setLinkKind("working");
@@ -462,6 +512,54 @@ export default function ReviewApp() {
   const updateLinkDraft = (id: string, patch: Partial<LinkDraft>) => {
     setLinkDrafts((current) => current.map((draft) => draft.id === id ? { ...draft, ...patch } : draft));
     setDraftError("");
+  };
+
+  const fillDraftFromProductScreen = async (draft: LinkDraft) => {
+    setDraftError("");
+    if (capturePreviewRef.current) URL.revokeObjectURL(capturePreviewRef.current);
+    capturePreviewRef.current = null;
+    setScreenCapture({
+      draftId: draft.id,
+      kind: "requesting",
+      message: "브라우저 창에서 상품이 열린 탭을 선택하고 ‘공유’를 눌러 주세요.",
+      previewUrl: null,
+    });
+    try {
+      const file = await captureSelectedProductScreen();
+      if (capturePreviewRef.current) URL.revokeObjectURL(capturePreviewRef.current);
+      const previewUrl = URL.createObjectURL(file);
+      capturePreviewRef.current = previewUrl;
+      setScreenCapture({ draftId: draft.id, kind: "recognizing", message: "화면 공유를 종료했어요. 상품명과 판매가를 읽고 있습니다…", previewUrl });
+      const order = await importImage(file, (progress: number, label: string) => {
+        setScreenCapture({ draftId: draft.id, kind: "recognizing", message: `${label} ${Math.round(progress * 100)}%`, previewUrl });
+      }) as { items?: Array<Record<string, unknown>> };
+      const candidate = chooseCapturedProductCandidate(order.items, draft.name);
+      updateLinkDraft(draft.id, {
+        name: candidate.name,
+        rawName: candidate.rawName,
+        unitPrice: candidate.unitPrice,
+        lookupStatus: "screen-captured",
+        confidence: 0.6,
+        priceSource: "선택한 상품 화면 OCR",
+        notes: [
+          `화면에서 ${candidate.candidateCount}개 가격 후보를 비교해 가장 가능성 높은 값을 채웠습니다.`,
+          "상품명·선택 옵션·판매가를 원본과 한 번 확인해 주세요.",
+        ],
+      });
+      setLinkKind("needs-confirmation");
+      setLinkStatus("상품 화면에서 상품명과 예상단가를 채웠어요. 선택 옵션과 판매가를 원본과 대조해 주세요.");
+      setScreenCapture({ draftId: draft.id, kind: "success", message: "상품명과 예상단가를 채웠어요. 원본 화면과 한 번만 대조해 주세요.", previewUrl });
+    } catch (error) {
+      const cancelled = error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "AbortError");
+      setScreenCapture({
+        draftId: draft.id,
+        kind: "error",
+        message: cancelled
+          ? "화면 선택이 취소됐어요. 다시 누른 뒤 G마켓 상품 탭을 선택해 주세요."
+          : error instanceof Error ? error.message : "상품 화면을 가져오지 못했습니다.",
+        previewUrl: capturePreviewRef.current,
+      });
+    }
   };
 
   const addLinkDrafts = () => {
@@ -565,6 +663,13 @@ export default function ReviewApp() {
             <div><textarea id="shopping-url" value={shoppingUrl} onChange={(event) => { setShoppingUrl(event.target.value); setLinkDrafts([]); setDraftError(""); setLinkKind("idle"); setLinkStatus("상품 링크를 붙여넣으면 견적 초안을 만들어요."); }} placeholder={"https://…/상품1\nhttps://…/상품2"} rows={Math.min(Math.max(shoppingUrl.split(/\r?\n/).length, 2), 6)} autoComplete="url" /><button type="submit" disabled={!shoppingUrl.trim() || linkKind === "working"}>{linkKind === "working" ? "확인 중…" : "상품 초안 만들기"}</button></div>
           </form>
           <div className={`link-status ${linkKind}`} aria-live="polite"><span aria-hidden="true" />{linkStatus}</div>
+          {linkDrafts.some((draft) => !draft.name || draft.unitPrice < 1) && (
+            <div className="screen-capture-guide">
+              <span className="screen-capture-guide-icon" aria-hidden="true">▣</span>
+              <div><strong>G마켓처럼 링크 조회가 막혀도 화면에서 채울 수 있어요</strong><p>아래에서 <b>원본 화면 열기</b>로 상품을 띄운 뒤 <b>상품 화면 선택</b>을 누르고, 표시되는 창에서 그 상품 탭을 선택하세요.</p></div>
+              <em>설치 없음</em>
+            </div>
+          )}
           {linkDrafts.length > 0 && (
             <section className="link-draft-card" aria-labelledby="link-draft-title">
               <div className="link-draft-heading">
@@ -573,7 +678,13 @@ export default function ReviewApp() {
               <div className="link-draft-list">
                 {linkDrafts.map((draft, index) => (
                   <article className="link-draft-item" key={draft.id} aria-labelledby={`link-draft-${index}`}>
-                    <div className="draft-item-heading"><div><span>{index + 1}</span><strong id={`link-draft-${index}`}>{draft.mall} · {draft.productId}</strong><em className={draft.confidence >= .8 ? "high" : draft.confidence >= .6 ? "medium" : "low"}>{draft.confidence ? `가격 신뢰도 ${Math.round(draft.confidence * 100)}%` : "직접 확인"}</em></div><a href={draft.sourceUrl} target="_blank" rel="noreferrer">원본 보기 ↗</a></div>
+                    <div className="draft-item-heading"><div><span>{index + 1}</span><strong id={`link-draft-${index}`}>{draft.mall} · {draft.productId}</strong><em className={draft.confidence >= .8 ? "high" : draft.confidence >= .6 ? "medium" : "low"}>{draft.confidence ? `가격 신뢰도 ${Math.round(draft.confidence * 100)}%` : "직접 확인"}</em></div><div className="draft-item-actions"><a href={draft.sourceUrl} target="_blank" rel="noreferrer">원본 화면 열기 ↗</a><button type="button" onClick={() => void fillDraftFromProductScreen(draft)} disabled={screenCapture.kind === "requesting" || screenCapture.kind === "recognizing"}>{screenCapture.draftId === draft.id && (screenCapture.kind === "requesting" || screenCapture.kind === "recognizing") ? "읽는 중…" : "상품 화면 선택"}</button></div></div>
+                    {screenCapture.draftId === draft.id && screenCapture.kind !== "idle" && (
+                      <div className={`screen-capture-result ${screenCapture.kind}`} role="status" aria-live="polite">
+                        {screenCapture.previewUrl && <img src={screenCapture.previewUrl} alt="선택한 상품 화면 미리보기" />}
+                        <div><strong>{screenCapture.kind === "requesting" ? "1. 상품 탭 선택" : screenCapture.kind === "recognizing" ? "2. 상품 정보 자동 인식" : screenCapture.kind === "success" ? "3. 자동 채우기 완료" : "다시 시도해 주세요"}</strong><p>{screenCapture.message}</p></div>
+                      </div>
+                    )}
                     <div className="link-draft-grid">
                       <label className="draft-name">내용 <b>필수</b><input value={draft.name} onChange={(event) => updateLinkDraft(draft.id, { name: event.target.value })} placeholder="상품명을 입력하세요" /></label>
                       <label>규격·옵션 <b>선택</b><input value={draft.spec} onChange={(event) => updateLinkDraft(draft.id, { spec: event.target.value })} placeholder="예: 250mL · 파란색" /></label>

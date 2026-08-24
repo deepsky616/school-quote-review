@@ -240,10 +240,10 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
         {mode === "paste" && (
           <div className="import-panel" role="tabpanel">
             <div className="recommended-card paste-card">
-              <div className="recommended-label secondary-label">보조 기능 · 쇼핑몰마다 형식이 달라요</div>
-              <h3>텍스트 붙여넣기는 마지막 수단으로 사용하세요</h3>
-              <p>화면의 줄 배치에 따라 상품명·수량·가격이 어긋날 수 있습니다. 불러온 뒤 원본 주문과 항목별로 대조해 주세요.</p>
-              <textarea className="paste-area" value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={"여기를 누르고 Ctrl+V\n\n예: 상품명 · 옵션 · 수량 · 금액 · 결제금액이 포함된 주문 화면"} rows={7} autoFocus />
+              <div className="recommended-label secondary-label">아이스크림몰 · 쿠팡 · G마켓 · YES24 자동 구분</div>
+              <h3>주문 화면을 그대로 복사해 붙여넣으세요</h3>
+              <p>상품명·옵션·수량·최종 할인가를 묶어 읽습니다. 정가·할인율·쿠폰·적립금·판매자·배송상태는 상품명에서 제외하고, 금액이 있는 배송비는 별도 품목으로 만듭니다.</p>
+              <textarea className="paste-area" value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={"여기를 누르고 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 최종 할인가 · 배송비가 포함된 주문 화면"} rows={7} />
               <div className="paste-meta-grid">
                 <label>원본 주소 <span>선택</span><input type="url" value={pasteUrl} onChange={(event) => setPasteUrl(event.target.value)} placeholder="https://…" /></label>
                 <label>결제 총액 <span>못 찾을 때만</span><input inputMode="numeric" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label>
