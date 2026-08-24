@@ -1,0 +1,20 @@
+:root { color-scheme: light; --ink:#173027; --green:#176b4d; --paper:#f4f2eb; --lime:#d8f27a; }
+* { box-sizing: border-box; }
+body { width: 342px; margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, "Apple SD Gothic Neo", sans-serif; }
+main { min-height: 430px; }
+header { height: 67px; display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid #dcded7; background: #fffefa; }
+header > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--green); color: white; font-weight: 900; }
+header div { display: grid; gap: 1px; }
+header strong { font-size: 15px; letter-spacing: -.04em; }
+header small { color: #8b9690; font-size: 9px; }
+section { padding: 27px 22px 22px; }
+.eyebrow { margin: 0 0 10px; color: var(--green); font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+h1 { margin: 0; font-size: 29px; line-height: 1.08; letter-spacing: -.065em; }
+.copy { margin: 17px 0 20px; color: #6f7b75; font-size: 11px; line-height: 1.65; }
+button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border: 1px solid #0e523a; border-radius: 10px; background: var(--green); color: white; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+button:hover { background: #0e523a; }
+button:disabled { opacity: .48; cursor: wait; }
+.status { min-height: 38px; margin: 12px 0 0; padding: 9px 10px; border-radius: 8px; background: #e8ebe7; color: #68746e; font-size: 9px; line-height: 1.5; }
+.status.success { background: #e5f2e9; color: #2d7253; }
+.status.error { background: #fff0e7; color: #9e5028; }
+footer { padding: 13px 20px; border-top: 1px solid #dcded7; color: #8e9893; font-size: 8px; text-align: center; }

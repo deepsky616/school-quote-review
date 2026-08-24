@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "견적정리 브라우저 도우미",
+  "version": "0.1.0",
+  "description": "로그인한 쇼핑몰 주문내역에서 견적서 검수에 필요한 항목만 로컬로 가져옵니다.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://school-quote-review.climbing1126.chatgpt.site/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_title": "현재 주문내역 가져오기",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://school-quote-review.climbing1126.chatgpt.site/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
