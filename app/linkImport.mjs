@@ -9,7 +9,27 @@ export function normalizeShoppingUrl(value) {
     throw new Error("공개 쇼핑몰 링크만 사용할 수 있습니다.");
   }
   url.hash = "";
+  if (url.hostname.toLowerCase() === "item.gmarket.co.kr" && url.pathname.toLowerCase() === "/item") {
+    const productId = [...url.searchParams.entries()].find(([key]) => key.toLowerCase() === "goodscode")?.[1] ?? "";
+    if (/^\d{6,20}$/.test(productId)) {
+      url.pathname = "/Item";
+      url.search = "";
+      url.searchParams.set("goodscode", productId);
+    }
+  }
   return url.toString();
+}
+
+export function getShoppingLinkInfo(value) {
+  const sourceUrl = normalizeShoppingUrl(value);
+  const url = new URL(sourceUrl);
+  const productId = url.hostname.toLowerCase() === "item.gmarket.co.kr"
+    ? url.searchParams.get("goodscode") ?? ""
+    : "";
+  if (/^\d{6,20}$/.test(productId)) {
+    return { kind: "gmarket-product", sourceUrl, productId, requiresCurrentPage: true };
+  }
+  return { kind: "generic", sourceUrl, productId: null, requiresCurrentPage: false };
 }
 
 export function extractStructuredOrder(doc = document, sourceUrl = location.href, requireVisible = true) {
@@ -23,6 +43,58 @@ export function extractStructuredOrder(doc = document, sourceUrl = location.href
   };
   const moneyValues = (value) => [...String(value).matchAll(/(?:₩\s*)?(\d{1,3}(?:,\d{3})+|\d{3,})\s*원/g)]
     .map((match) => Number(match[1].replaceAll(",", ""))).filter((number) => Number.isFinite(number) && number >= 0);
+  const numericPrice = (value) => {
+    const match = String(value ?? "").match(/\d[\d,]*(?:\.\d+)?/);
+    const number = match ? Number(match[0].replaceAll(",", "")) : 0;
+    return Number.isFinite(number) && number > 0 ? Math.round(number) : 0;
+  };
+  const source = new URL(sourceUrl);
+  const pageText = textOf(doc.body);
+  if (/(잠시만\s*기다리십시오|봇\s*\(?(?:Bot)?\)?\s*확인|간단한\s*확인\s*안내)/i.test(`${doc.title ?? ""} ${pageText.slice(0, 1200)}`)) {
+    return { error: "[V-P03] 쇼핑몰 봇 확인을 먼저 완료한 뒤 실제 상품 화면에서 다시 눌러 주세요." };
+  }
+
+  const jsonProducts = [];
+  const collectProducts = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(collectProducts); return; }
+    const types = Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]];
+    if (types.some((type) => String(type).toLowerCase() === "product")) jsonProducts.push(value);
+    Object.values(value).forEach(collectProducts);
+  };
+  for (const script of doc.querySelectorAll("script[type='application/ld+json']")) {
+    try { collectProducts(JSON.parse(script.textContent || "null")); } catch { /* 잘못된 JSON-LD는 다른 구조로 계속 확인 */ }
+  }
+  const metaContent = (...selectors) => selectors.map((selector) => clean(doc.querySelector(selector)?.getAttribute("content"))).find(Boolean) ?? "";
+  const jsonProduct = jsonProducts[0];
+  const offers = Array.isArray(jsonProduct?.offers) ? jsonProduct.offers[0] : jsonProduct?.offers;
+  const singleName = clean(jsonProduct?.name || metaContent("meta[property='og:title']", "meta[name='twitter:title']") ||
+    textOf(doc.querySelector("h1, .itemtit, [class*='item'][class*='title'], [class*='product'][class*='title']")))
+    .replace(/^G마켓\s*[-–|]\s*/i, "").replace(/\s*[-–|]\s*G마켓\s*$/i, "");
+  const jsonPrice = numericPrice(offers?.price ?? offers?.lowPrice ?? offers?.highPrice);
+  const metaPrice = numericPrice(metaContent("meta[property='product:price:amount']", "meta[property='og:price:amount']", "meta[itemprop='price']"));
+  const priceSelectors = ["[itemprop='price']", ".price_real strong", "[class*='price_real'] strong", "[class*='price'][class*='sell']", "[data-price]"];
+  const domPrice = priceSelectors.map((selector) => {
+    const node = doc.querySelector(selector);
+    return numericPrice(node?.getAttribute?.("content") || node?.getAttribute?.("data-price") || textOf(node));
+  }).find((price) => price > 0) ?? 0;
+  const singlePrice = jsonPrice || metaPrice || domPrice;
+  const isGmarketItem = source.hostname.toLowerCase() === "item.gmarket.co.kr" && source.pathname.toLowerCase() === "/item";
+  const isSingleProduct = Boolean(jsonProduct || (isGmarketItem && singleName));
+
+  if (isSingleProduct && singleName) {
+    const productId = [...source.searchParams.entries()].find(([key]) => key.toLowerCase() === "goodscode")?.[1] || clean(jsonProduct?.sku || jsonProduct?.productID);
+    const warnings = ["V04"];
+    if (singlePrice) warnings.push("V11"); else warnings.push("V05");
+    return {
+      mall: source.hostname.replace(/^www\./, ""), sourceUrl, orderNo: productId ? `상품번호 ${productId}` : "상품 링크",
+      capturedAt: new Date().toISOString(), paidTotal: singlePrice, _warnings: ["V08"],
+      _extractedBy: "single-product-page", items: [{
+        내용: singleName, 규격: "", 단위: "개", 수량: 1, 단가: singlePrice, 금액: singlePrice,
+        _rawName: singleName, _rawRow: pageText.slice(0, 1200), _warnings: warnings, excluded: false,
+      }],
+    };
+  }
   const controlText = /(장바구니|주문내역|배송조회|리뷰|문의|구매확정|쿠폰|할인|포인트|합계|총액|결제금액|주문금액)/;
   const nameSelectors = [
     ["[itemprop='name']", 110], ["[data-testid*='name']", 105], ["[data-testid*='title']", 100],
@@ -169,7 +241,11 @@ export function extractStructuredOrder(doc = document, sourceUrl = location.href
 }
 
 export async function analyzePublicShoppingLink(value) {
-  const sourceUrl = normalizeShoppingUrl(value);
+  const linkInfo = getShoppingLinkInfo(value);
+  const sourceUrl = linkInfo.sourceUrl;
+  if (linkInfo.requiresCurrentPage) {
+    throw new Error(`[V-L01] G마켓 상품번호 ${linkInfo.productId}은 현재 상품 화면에서 가져와야 합니다.`);
+  }
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
@@ -186,7 +262,7 @@ export async function analyzePublicShoppingLink(value) {
     order._extractedBy = "public-link";
     return order;
   } catch (error) {
-    if (error instanceof Error && /V-P0/.test(error.message)) throw error;
+    if (error instanceof Error && /V-(?:P0|L0)/.test(error.message)) throw error;
     throw new Error("로그인이 필요하거나 쇼핑몰이 외부 읽기를 막고 있습니다.");
   } finally {
     window.clearTimeout(timeout);

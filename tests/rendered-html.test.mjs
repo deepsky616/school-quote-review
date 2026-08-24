@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { spreadsheetRowsToOrder } from "../app/fileImport.mjs";
-import { createBookmarklet, decodeBookmarkletCapture, normalizeShoppingUrl } from "../app/linkImport.mjs";
+import { createBookmarklet, decodeBookmarkletCapture, extractStructuredOrder, getShoppingLinkInfo, normalizeShoppingUrl } from "../app/linkImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
 
 async function render() {
@@ -67,7 +67,7 @@ test("링크와 문서·사진을 우선하고 텍스트 붙여넣기는 보조 
   const manifest = JSON.parse(manifestText);
 
   assert.match(review, /장바구니·주문 링크로 시작하세요/);
-  assert.match(review, /견적정리로 보내기/);
+  assert.match(review, /현재 화면 보내기/);
   assert.match(linkImport, /credentials: "omit"/);
   assert.match(linkImport, /\[itemtype\*='Product'\]/);
   assert.match(linkImport, /#quote-import=/);
@@ -91,14 +91,54 @@ test("쇼핑 링크와 무설치 북마크 전달 형식을 안전하게 제한�
   assert.equal(normalizeShoppingUrl("https://shop.example/order/1#payment"), "https://shop.example/order/1");
   assert.throws(() => normalizeShoppingUrl("javascript:alert(1)"), /http 또는 https/);
   assert.throws(() => normalizeShoppingUrl("http://127.0.0.1/order"), /공개 쇼핑몰/);
+  assert.equal(
+    normalizeShoppingUrl("https://item.gmarket.co.kr/Item?spm=tracking&goodscode=4833981563"),
+    "https://item.gmarket.co.kr/Item?goodscode=4833981563",
+  );
+  assert.deepEqual(getShoppingLinkInfo("https://item.gmarket.co.kr/Item?goodscode=4833981563"), {
+    kind: "gmarket-product",
+    sourceUrl: "https://item.gmarket.co.kr/Item?goodscode=4833981563",
+    productId: "4833981563",
+    requiresCurrentPage: true,
+  });
 
   const bookmarklet = createBookmarklet("https://quote.example/");
   assert.match(bookmarklet, /^javascript:/);
+  assert.match(bookmarklet, /application\/ld\+json/);
+  assert.match(bookmarklet, /V-P03/);
   assert.doesNotThrow(() => new Function(bookmarklet.slice("javascript:".length)));
 
   const order = { sourceUrl: "https://shop.example/order/1", items: [{ 내용: "비커", 수량: 2, 단가: 2400, 금액: 4800 }] };
   const encoded = Buffer.from(JSON.stringify({ order }), "utf8").toString("base64url");
   assert.deepEqual(decodeBookmarkletCapture(`#quote-import=${encoded}`), order);
+});
+
+test("G마켓 현재 상품 화면은 JSON-LD 상품을 읽고 수량·가격 검수를 남긴다", () => {
+  const productJson = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: "수업용 실험 비커 250mL",
+    sku: "4833981563",
+    offers: { "@type": "Offer", price: "2400", priceCurrency: "KRW" },
+  });
+  const document = {
+    title: "G마켓 - 수업용 실험 비커 250mL",
+    body: { textContent: "수업용 실험 비커 250mL 판매가 2,400원" },
+    querySelectorAll(selector) { return selector === "script[type='application/ld+json']" ? [{ textContent: productJson }] : []; },
+    querySelector() { return null; },
+  };
+  const order = extractStructuredOrder(document, "https://item.gmarket.co.kr/Item?goodscode=4833981563", false);
+  assert.equal(order.orderNo, "상품번호 4833981563");
+  assert.equal(order.items[0].내용, "수업용 실험 비커 250mL");
+  assert.equal(order.items[0].단가, 2400);
+  assert.deepEqual(order.items[0]._warnings, ["V04", "V11"]);
+  assert.deepEqual(order._warnings, ["V08"]);
+});
+
+test("봇 확인 화면은 상품으로 잘못 가져오지 않는다", () => {
+  const document = { title: "잠시만 기다리십시오…", body: { textContent: "원활한 서비스 이용을 위한 봇(Bot) 확인 안내" } };
+  const result = extractStructuredOrder(document, "https://item.gmarket.co.kr/Item?goodscode=4833981563", false);
+  assert.match(result.error, /V-P03/);
 });
 
 test("복사한 주문 화면을 6개 품목 필드와 안전 경고로 정규화한다", () => {
