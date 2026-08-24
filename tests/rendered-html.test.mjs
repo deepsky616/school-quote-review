@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { spreadsheetRowsToOrder } from "../app/fileImport.mjs";
-import { createBookmarklet, decodeBookmarkletCapture, extractStructuredOrder, getShoppingLinkInfo, normalizeShoppingUrl } from "../app/linkImport.mjs";
+import { createBookmarklet, decodeBookmarkletCapture, extractStructuredOrder, getShoppingLinkInfo, normalizeShoppingUrl, parseShoppingLinks } from "../app/linkImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
 import { parsePublicProductHtml } from "../app/productDraft.mjs";
 
@@ -24,7 +24,7 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
 
   const html = await response.text();
   assert.match(html, /견적정리/);
-  assert.match(html, /상품 링크만 붙여넣으세요/);
+  assert.match(html, /상품 링크를 한 줄에 하나씩 붙여넣으세요/);
   assert.match(html, /상품 초안 만들기/);
   assert.match(html, /아직 불러온 품목이 없어요/);
   assert.match(html, /정확하게 가져오는 권장 순서/);
@@ -51,6 +51,9 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   assert.match(source, /order\.reviewed\.json/);
   assert.match(source, /excluded: item\.excluded/);
   assert.match(source, /sourceUrl: meta\.sourceUrl/);
+  assert.match(source, /V15: "예산 한도 초과"/);
+  assert.match(source, /stage === "pre-purchase"/);
+  assert.match(source, /구매 전 예상 · 예산/);
   assert.match(source, /new Blob\(\[bytes\.buffer as ArrayBuffer\]/);
   assert.match(layout, /new URL\("\/og\.png", base\)/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
@@ -68,9 +71,10 @@ test("링크와 문서·사진을 우선하고 텍스트 붙여넣기는 보조 
   ]);
   const manifest = JSON.parse(manifestText);
 
-  assert.match(review, /상품 링크만 붙여넣으세요/);
-  assert.match(review, /부족한 값만 확인해 주세요/);
-  assert.match(review, /확인하고 검수표에 추가/);
+  assert.match(review, /상품 링크를 한 줄에 하나씩 붙여넣으세요/);
+  assert.match(review, /가격 출처와 빈칸만 확인해 주세요/);
+  assert.match(review, /확인한 \{linkDrafts\.length\}개를 검수표에 추가/);
+  assert.match(review, /예산 한도/);
   assert.match(review, /고급 기능 · 로그인 주문 화면을 한꺼번에 가져오기/);
   assert.match(review, /현재 화면 보내기/);
   assert.match(linkImport, /credentials: "omit"/);
@@ -106,6 +110,15 @@ test("쇼핑 링크와 무설치 북마크 전달 형식을 안전하게 제한�
     productId: "4833981563",
     requiresCurrentPage: true,
   });
+  assert.deepEqual(parseShoppingLinks([
+    "https://item.gmarket.co.kr/Item?spm=a&goodscode=4833981563",
+    "https://shop.example/product/2#option",
+    "https://item.gmarket.co.kr/Item?goodscode=4833981563",
+  ].join("\n")), [
+    "https://item.gmarket.co.kr/Item?goodscode=4833981563",
+    "https://shop.example/product/2",
+  ]);
+  assert.throws(() => parseShoppingLinks("https://shop.example/1\nnot-a-link"), /\[V-L02\] 2번째/);
 
   const bookmarklet = createBookmarklet("https://quote.example/");
   assert.match(bookmarklet, /^javascript:/);
@@ -151,12 +164,36 @@ test("G마켓 상품 링크는 공개 메타데이터로 초안을 만들고 차
   const found = parsePublicProductHtml(html, { productId: "4833981563", sourceUrl });
   assert.equal(found.name, "수업용 실험 비커 250mL");
   assert.equal(found.price, 2400);
+  assert.equal(found.source, "JSON-LD");
+  assert.equal(found.confidence, 0.95);
   assert.equal(found.lookupStatus, "found");
 
   const blocked = parsePublicProductHtml("<title>잠시만 기다리십시오…</title><p>봇(Bot) 확인 안내</p>", { productId: "4833981563", sourceUrl });
   assert.equal(blocked.lookupStatus, "blocked");
   assert.equal(blocked.name, "");
   assert.equal(blocked.price, 0);
+});
+
+test("상품 공개가격은 메타·본문 순서로 찾고 옵션가·외화를 확인 대상으로 남긴다", () => {
+  const context = { productId: "1000000000", sourceUrl: "https://item.gmarket.co.kr/Item?goodscode=1000000000" };
+  const meta = parsePublicProductHtml(`<meta property="og:title" content="A4 복사지 2500매"><meta property="product:price:amount" content="19,900"><meta property="product:price:currency" content="KRW">`, context);
+  assert.equal(meta.price, 19900);
+  assert.equal(meta.source, "메타 태그");
+  assert.equal(meta.confidence, 0.85);
+
+  const text = parsePublicProductHtml(`<h1>알코올램프</h1><div>추천 1,000원</div><b>8,000원</b><span>8,000원</span>`, context);
+  assert.equal(text.price, 8000);
+  assert.equal(text.source, "본문 추정");
+  assert.equal(text.confidence, 0.5);
+  assert.ok(text.notes.some((note) => /대조/.test(note)));
+
+  const ranged = parsePublicProductHtml(`<script type="application/ld+json">${JSON.stringify({
+    "@type": "Product", name: "옵션 상품", offers: { price: "5900", lowPrice: "5900", highPrice: "18900", priceCurrency: "USD" },
+  })}</script>`, context);
+  assert.deepEqual(ranged.priceRange, [5900, 18900]);
+  assert.equal(ranged.confidence, 0.3);
+  assert.ok(ranged.notes.some((note) => /옵션/.test(note)));
+  assert.ok(ranged.notes.some((note) => /원화/.test(note)));
 });
 
 test("봇 확인 화면은 상품으로 잘못 가져오지 않는다", () => {

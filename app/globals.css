@@ -86,7 +86,7 @@ button { cursor: pointer; }
 .link-import-form { margin-top: 24px; }
 .link-import-form > label { display: block; margin-bottom: 8px; color: #4e6057; font-size: 10px; font-weight: 900; }
 .link-import-form > div { display: grid; grid-template-columns: 1fr auto; padding: 6px; border: 1px solid #c5d5ca; border-radius: 13px; background: #fff; box-shadow: 0 6px 18px rgba(23,48,39,.06); }
-.link-import-form input { min-width: 0; padding: 11px 12px; border: 0; outline: none; background: transparent; color: var(--ink); font-size: 13px; }
+.link-import-form textarea { min-width: 0; padding: 11px 12px; border: 0; outline: none; resize: vertical; background: transparent; color: var(--ink); font: 13px/1.55 var(--font-geist-sans), sans-serif; }
 .link-import-form button { min-width: 148px; border: 1px solid var(--green-dark); border-radius: 9px; background: var(--green); color: #fff; font-size: 12px; font-weight: 850; }
 .link-import-form button:disabled { cursor: not-allowed; opacity: .48; }
 .link-status { min-height: 34px; display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.58); color: #6d7b73; font-size: 10px; font-weight: 700; }
@@ -102,6 +102,17 @@ button { cursor: pointer; }
 .link-draft-heading h3 { margin: 8px 0 4px; font-size: 17px; letter-spacing: -.035em; }
 .link-draft-heading p { margin: 0; color: #76837c; font-size: 10px; line-height: 1.55; }
 .link-draft-heading > a { flex: 0 0 auto; padding: 8px 10px; border: 1px solid #cbd7cf; border-radius: 7px; color: #4e655a; font-size: 10px; font-weight: 850; text-decoration: none; }
+.link-draft-list { display: grid; gap: 11px; margin-top: 15px; }
+.link-draft-item { padding: 14px; border: 1px solid #e0e7e2; border-radius: 11px; background: #fbfcfa; }
+.draft-item-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.draft-item-heading > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.draft-item-heading > div > span { width: 22px; height: 22px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 6px; background: var(--green-soft); color: var(--green); font-size: 9px; font-weight: 900; }
+.draft-item-heading strong { overflow: hidden; color: #4f6057; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.draft-item-heading em { flex: 0 0 auto; padding: 3px 6px; border-radius: 5px; font-size: 8px; font-style: normal; font-weight: 900; }
+.draft-item-heading em.high { background: #e1f1e6; color: #2e7253; }
+.draft-item-heading em.medium { background: #fff0c9; color: #885e12; }
+.draft-item-heading em.low { background: #f8e7de; color: #a04f32; }
+.draft-item-heading > a { flex: 0 0 auto; color: var(--green); font-size: 9px; font-weight: 850; text-decoration: none; }
 .link-draft-grid { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(160px, 1.35fr) 80px 80px minmax(130px, 1fr) minmax(145px, 1.1fr); gap: 10px; margin-top: 16px; }
 .link-draft-grid label { min-width: 0; color: #526159; font-size: 9px; font-weight: 900; }
 .link-draft-grid label > b { margin-left: 3px; color: #99a39e; font-size: 8px; }
@@ -110,12 +121,21 @@ button { cursor: pointer; }
 .money-field { position: relative; display: block; }
 .money-field input { padding-right: 27px; text-align: right; }
 .money-field i { position: absolute; right: 9px; bottom: 12px; color: #8b9790; font-size: 9px; font-style: normal; }
+.draft-amount { min-height: 39px; align-self: end; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 9px; border-radius: 8px; background: #eef4f0; text-align: right; }
+.draft-amount span { color: #7a8980; font-size: 8px; font-weight: 800; }
+.draft-amount strong { color: var(--ink); font-size: 13px; }
+.draft-provenance { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 10px; color: #8a958f; font-size: 8px; }
+.draft-provenance > span { color: #60736a; font-weight: 850; }
+.draft-provenance p { margin: 0; }
 .link-draft-footer { display: flex; align-items: center; justify-content: flex-end; gap: 18px; margin-top: 16px; padding-top: 15px; border-top: 1px solid #e4e9e5; }
 .link-draft-footer > div { display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 9px; text-align: right; }
 .link-draft-footer span { color: #6f7d75; font-size: 9px; font-weight: 800; }
 .link-draft-footer strong { color: var(--ink); font-size: 18px; }
 .link-draft-footer small { grid-column: 1 / -1; color: #9aa39e; font-size: 8px; }
 .link-draft-footer button { min-height: 40px; padding: 0 14px; border: 1px solid var(--green-dark); border-radius: 8px; background: var(--green); color: #fff; font-size: 10px; font-weight: 900; }
+.draft-budget { min-width: 170px; margin-right: auto; color: #526159; font-size: 9px; font-weight: 900; }
+.draft-budget > b { margin-left: 3px; color: #99a39e; font-size: 8px; }
+.draft-budget input { width: 170px; height: 39px; margin-top: 6px; padding: 0 27px 0 10px; border: 1px solid #d4ddd7; border-radius: 8px; outline: none; background: #fff; color: var(--ink); font-size: 11px; }
 .draft-error { margin: 10px 0 0; color: #b24d38; font-size: 10px; font-weight: 800; text-align: right; }
 .login-link-actions { display: flex; gap: 8px; }
 .login-link-actions a { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px solid #cad6ce; border-radius: 8px; background: #fff; color: #53645b; font-size: 10px; font-weight: 850; text-decoration: none; white-space: nowrap; }
@@ -167,6 +187,8 @@ h1 { margin: 0; max-width: 560px; font-size: clamp(40px, 5vw, 64px); line-height
 .match-pill span { width: 17px; height: 17px; display: grid; place-items: center; color: var(--ink); background: var(--lime); border-radius: 50%; font-size: 10px; }
 .match-pill.mismatch { color: #ffd582; background: rgba(243,184,70,.13); }
 .match-pill.mismatch span { color: #66420c; background: #f3b846; }
+.match-pill.neutral { color: #cad4cf; background: rgba(255,255,255,.08); }
+.match-pill.neutral span { color: #53635b; background: #cad4cf; }
 
 .review-card { overflow: hidden; background: var(--surface); border: 1px solid #e2e1d9; border-radius: 20px; box-shadow: 0 14px 36px rgba(36, 47, 42, .07); }
 .notice { margin: 18px; padding: 15px 16px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; border: 1px solid #f0d69b; border-radius: 12px; background: var(--amber-soft); }
@@ -223,6 +245,7 @@ h1 { margin: 0; max-width: 560px; font-size: clamp(40px, 5vw, 64px); line-height
 .item-line b { font-size: 14px; letter-spacing: -.02em; }
 .item-line em { padding: 3px 6px; border-radius: 5px; background: #fff0cd; color: var(--amber); font-size: 9px; font-style: normal; font-weight: 900; }
 .name-cell small { display: block; margin-top: 7px; max-width: 360px; overflow: hidden; color: #9aa29e; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.item-source-link { display: inline-flex; margin-top: 5px; color: var(--green); font-size: 9px; font-weight: 800; text-decoration: none; }
 .exclude-note { display: block; margin-top: 6px; color: #b17355; font-size: 10px; font-weight: 700; }
 .number { text-align: right; font-variant-numeric: tabular-nums; }
 .amount { color: var(--ink); font-weight: 800; }
@@ -351,10 +374,14 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(216,242,122,
   .link-import-form button { min-height: 42px; }
   .link-draft-card { padding: 16px; }
   .link-draft-heading { flex-direction: column; gap: 12px; }
+  .draft-item-heading { align-items: flex-start; }
+  .draft-item-heading > div { flex-wrap: wrap; }
   .link-draft-grid { grid-template-columns: 1fr 1fr; }
   .link-draft-grid .draft-name { grid-column: 1 / -1; }
   .link-draft-footer { align-items: stretch; flex-direction: column; }
   .link-draft-footer > div { align-self: flex-end; }
+  .draft-budget { width: 100%; }
+  .draft-budget input { width: 100%; }
   .link-draft-footer button { min-height: 44px; }
   .login-link-actions { align-items: stretch; flex-direction: column; }
   .quick-start-fallback { align-items: stretch; flex-direction: column; }

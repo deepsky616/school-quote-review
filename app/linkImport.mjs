@@ -20,6 +20,20 @@ export function normalizeShoppingUrl(value) {
   return url.toString();
 }
 
+export function parseShoppingLinks(value, limit = 20) {
+  const candidates = String(value ?? "").split(/\s+/).map((entry) => entry.trim()).filter(Boolean);
+  if (!candidates.length) throw new Error("상품 링크를 한 개 이상 입력해 주세요.");
+  if (candidates.length > limit) throw new Error(`[V-L02] 상품 링크는 한 번에 ${limit}개까지 입력할 수 있습니다.`);
+  const normalized = candidates.map((candidate, index) => {
+    try { return normalizeShoppingUrl(candidate); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : "주소 형식이 올바르지 않습니다.";
+      throw new Error(`[V-L02] ${index + 1}번째 링크를 확인해 주세요. ${message}`);
+    }
+  });
+  return [...new Set(normalized)];
+}
+
 export function getShoppingLinkInfo(value) {
   const sourceUrl = normalizeShoppingUrl(value);
   const url = new URL(sourceUrl);

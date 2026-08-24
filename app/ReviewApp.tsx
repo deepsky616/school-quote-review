@@ -2,7 +2,7 @@
 
 import { DragEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ImportDialog from "./ImportDialog.tsx";
-import { analyzePublicShoppingLink, createBookmarklet, decodeBookmarkletCapture, getShoppingLinkInfo, normalizeShoppingUrl } from "./linkImport.mjs";
+import { analyzePublicShoppingLink, createBookmarklet, decodeBookmarkletCapture, getShoppingLinkInfo, parseShoppingLinks } from "./linkImport.mjs";
 
 type ReviewItem = {
   id: string;
@@ -15,27 +15,35 @@ type ReviewItem = {
   excluded: boolean;
   excludeReason?: string;
   warnings: string[];
+  sourceUrl?: string;
 };
 
 type OrderMeta = {
   mall: string;
   orderNo: string;
   paidTotal: number;
+  budget: number;
+  stage: "pre-purchase" | "post-purchase";
   sourceUrl?: string;
+  sourceUrls: string[];
   warnings: string[];
 };
 
 type LinkDraft = {
+  id: string;
   sourceUrl: string;
   mall: string;
   productId: string;
   name: string;
+  rawName: string;
   spec: string;
   unit: string;
   quantity: number;
   unitPrice: number;
-  paidTotal: string;
   lookupStatus: string;
+  confidence: number;
+  priceSource: string;
+  notes: string[];
 };
 
 const initialItems: ReviewItem[] = [];
@@ -44,6 +52,9 @@ const initialMeta: OrderMeta = {
   mall: "새 견적",
   orderNo: "불러오기 전",
   paidTotal: 0,
+  budget: 0,
+  stage: "pre-purchase",
+  sourceUrls: [],
   warnings: [],
 };
 
@@ -60,9 +71,10 @@ const warningText: Record<string, string> = {
   V11: "가격 기준 확인 필요",
   V12: "외화 항목 확인 필요",
   V13: "취소·반품 의심",
+  V15: "예산 한도 초과",
 };
 
-const blockingRules = new Set(["V01", "V04", "V05", "V07", "V08", "V11", "V12"]);
+const blockingRules = new Set(["V01", "V04", "V05", "V07", "V08", "V11", "V12", "V15"]);
 const won = (value: number) => new Intl.NumberFormat("ko-KR").format(value);
 const safeNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
@@ -87,6 +99,7 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
   if (!value || typeof value !== "object") throw new Error("주문 데이터 형식이 올바르지 않습니다.");
   const order = value as Record<string, unknown>;
   if (!Array.isArray(order.items) || order.items.length === 0) throw new Error("[V01] items가 비어 있습니다.");
+  const stage: OrderMeta["stage"] = order.stage === "pre-purchase" ? "pre-purchase" : "post-purchase";
 
   const items = order.items.map((raw, index) => {
     const row = (raw ?? {}) as Record<string, unknown>;
@@ -112,20 +125,33 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
       excluded: Boolean(row.excluded),
       excludeReason: row.excludeReason ? String(row.excludeReason) : undefined,
       warnings,
+      sourceUrl: typeof (row.sourceUrl ?? row.url) === "string" && /^https?:\/\//.test(String(row.sourceUrl ?? row.url))
+        ? String(row.sourceUrl ?? row.url)
+        : undefined,
     };
     return { ...item, warnings: deriveWarnings(item) };
   });
 
+  const primarySourceUrl = typeof order.sourceUrl === "string" && /^https?:\/\//.test(order.sourceUrl) ? order.sourceUrl : undefined;
+  const sourceUrls = [...new Set([
+    ...(Array.isArray(order.sourceUrls) ? order.sourceUrls.map(String) : []),
+    ...(primarySourceUrl ? [primarySourceUrl] : []),
+    ...items.flatMap((item) => item.sourceUrl ? [item.sourceUrl] : []),
+  ].filter((url) => /^https?:\/\//.test(url)))];
+  const orderWarnings = Array.isArray(order._warnings)
+    ? order._warnings.map(String).filter((warning) => warning in warningText)
+    : [];
   return {
     items,
     meta: {
       mall: String(order.mall ?? "불러온 주문"),
       orderNo: String(order.orderNo ?? "주문번호 없음"),
-      paidTotal: safeNumber(order.paidTotal, items.filter((item) => !item.excluded).reduce((sum, item) => sum + item.수량 * item.단가, 0)),
-      sourceUrl: typeof order.sourceUrl === "string" && /^https?:\/\//.test(order.sourceUrl) ? order.sourceUrl : undefined,
-      warnings: Array.isArray(order._warnings)
-        ? order._warnings.map(String).filter((warning) => warning in warningText)
-        : [],
+      paidTotal: stage === "pre-purchase" ? 0 : safeNumber(order.paidTotal, items.filter((item) => !item.excluded).reduce((sum, item) => sum + item.수량 * item.단가, 0)),
+      budget: safeNumber(order.budget, 0),
+      stage,
+      sourceUrl: primarySourceUrl ?? sourceUrls[0],
+      sourceUrls,
+      warnings: stage === "pre-purchase" ? orderWarnings.filter((warning) => warning !== "V07" && warning !== "V08") : orderWarnings,
     },
   };
 }
@@ -203,9 +229,14 @@ function makeXlsx(items: ReviewItem[], meta: OrderMeta) {
         `<c r="G${rowNo}" s="3"><f>IF(E${rowNo}="","",E${rowNo}*F${rowNo})</f><v>${item.수량 * item.단가}</v></c></row>`;
     }).join("");
     const subtotal = pageItems.reduce((sum, item) => sum + item.수량 * item.단가, 0);
+    const budgetNote = meta.stage === "pre-purchase"
+      ? meta.budget > 0
+        ? `구매 전 예상 · 예산 ${won(meta.budget)}원 · 예상 합계 ${won(total)}원 · ${total > meta.budget ? `초과 ${won(total - meta.budget)}원` : `잔액 ${won(meta.budget - total)}원`}`
+        : `구매 전 예상 · 예상 합계 ${won(total)}원`
+      : "내부 품의·정리용";
     const pageNote = pages.length > 1
-      ? `(총 ${pages.length}매 중 ${pageIndex + 1}매) · 전체 합계 ${won(total)}원 · 내부 품의·정리용`
-      : "※ 본 자료는 내부 품의·정리용이며 원본 증빙을 대체하지 않습니다.";
+      ? `(총 ${pages.length}매 중 ${pageIndex + 1}매) · 전체 합계 ${won(total)}원 · ${budgetNote}`
+      : `※ ${budgetNote} · 본 자료는 내부 참고용이며 원본 증빙을 대체하지 않습니다.`;
     const orderLine = pages.length > 1
       ? `주문번호 ${escapeXml(meta.orderNo)} · 총 ${pages.length}매 중 ${pageIndex + 1}매`
       : `주문번호 ${escapeXml(meta.orderNo)}`;
@@ -259,7 +290,8 @@ export default function ReviewApp() {
   const [shoppingUrl, setShoppingUrl] = useState("");
   const [linkStatus, setLinkStatus] = useState("상품 링크를 붙여넣으면 견적 초안을 만들어요.");
   const [linkKind, setLinkKind] = useState<"idle" | "working" | "success" | "needs-confirmation" | "error">("idle");
-  const [linkDraft, setLinkDraft] = useState<LinkDraft | null>(null);
+  const [linkDrafts, setLinkDrafts] = useState<LinkDraft[]>([]);
+  const [draftBudget, setDraftBudget] = useState("");
   const [draftError, setDraftError] = useState("");
   const [bookmarklet, setBookmarklet] = useState("");
   const bookmarkRef = useRef<HTMLAnchorElement>(null);
@@ -268,20 +300,20 @@ export default function ReviewApp() {
     const included = items.filter((item) => !item.excluded);
     const total = included.reduce((sum, item) => sum + item.수량 * item.단가, 0);
     const warnings = [...meta.warnings, ...items.flatMap((item) => item.warnings)];
-    if (meta.paidTotal && meta.paidTotal !== total) warnings.push("V07");
+    if (meta.stage === "post-purchase" && meta.paidTotal && meta.paidTotal !== total) warnings.push("V07");
+    if (meta.stage === "pre-purchase" && meta.budget > 0 && total > meta.budget) warnings.push("V15");
     if (included.length > 18) warnings.push("V10");
-    return { total, delta: meta.paidTotal - total, warnings, included };
-  }, [items, meta.paidTotal, meta.warnings]);
+    const comparison = meta.stage === "pre-purchase" ? meta.budget : meta.paidTotal;
+    return { total, delta: comparison - total, warnings, included };
+  }, [items, meta.budget, meta.paidTotal, meta.stage, meta.warnings]);
 
   const visibleItems = issuesOnly ? items.filter((item) => item.warnings.length > 0) : items;
   const hasBlock = totals.warnings.some((warning) => blockingRules.has(warning));
   const hasItems = items.length > 0;
   const normalizedShoppingUrl = useMemo(() => {
-    try { return normalizeShoppingUrl(shoppingUrl); } catch { return ""; }
+    try { return parseShoppingLinks(shoppingUrl)[0] ?? ""; } catch { return ""; }
   }, [shoppingUrl]);
-  const shoppingLinkInfo = useMemo(() => {
-    try { return getShoppingLinkInfo(shoppingUrl); } catch { return null; }
-  }, [shoppingUrl]);
+  const draftTotal = useMemo(() => linkDrafts.reduce((sum, draft) => sum + draft.quantity * draft.unitPrice, 0), [linkDrafts]);
 
   const updateItem = (id: string, patch: Partial<ReviewItem>) => {
     setItems((current) => current.map((item) => {
@@ -336,104 +368,138 @@ export default function ReviewApp() {
 
   const analyzeShoppingLink = async () => {
     setLinkKind("working");
-    setLinkDraft(null);
+    setLinkDrafts([]);
     setDraftError("");
-    setLinkStatus("상품번호와 공개된 상품 정보를 확인하고 있어요…");
+    setLinkStatus("상품번호와 공개 가격의 출처를 확인하고 있어요…");
     try {
-      if (shoppingLinkInfo?.kind === "gmarket-product") {
-        setShoppingUrl(shoppingLinkInfo.sourceUrl);
-        const response = await fetch(`/api/product-draft?mall=gmarket&productId=${encodeURIComponent(shoppingLinkInfo.productId)}`, {
-          headers: { Accept: "application/json" },
-        });
-        if (!response.ok) throw new Error("상품 링크 형식을 확인해 주세요.");
-        const payload = await response.json() as { name?: string; price?: number; lookupStatus?: string };
-        const name = String(payload.name ?? "");
-        const unitPrice = safeNumber(payload.price, 0);
-        setLinkDraft({
-          sourceUrl: shoppingLinkInfo.sourceUrl,
-          mall: "G마켓",
-          productId: shoppingLinkInfo.productId,
-          name,
-          spec: "",
-          unit: "개",
-          quantity: 1,
-          unitPrice,
-          paidTotal: "",
-          lookupStatus: String(payload.lookupStatus ?? "confirmation-required"),
-        });
-        const found = Boolean(name && unitPrice);
-        setLinkKind(found ? "success" : "needs-confirmation");
-        setLinkStatus(found
-          ? "상품명과 공개 판매가를 채웠어요. 수량·옵션·실제 단가만 확인해 주세요."
-          : `G마켓 상품번호 ${shoppingLinkInfo.productId}을 확인했어요. 링크에서 확인되지 않은 값만 입력해 주세요.`);
-        return;
+      const links = parseShoppingLinks(shoppingUrl);
+      setShoppingUrl(links.join("\n"));
+      const allDrafts: LinkDraft[] = [];
+      for (let offset = 0; offset < links.length; offset += 4) {
+        const batch = await Promise.all(links.slice(offset, offset + 4).map(async (sourceUrl, batchIndex) => {
+          const linkIndex = offset + batchIndex;
+          const linkInfo = getShoppingLinkInfo(sourceUrl);
+          if (linkInfo.kind === "gmarket-product") {
+            let payload: { name?: string; price?: number; lookupStatus?: string; confidence?: number; source?: string; notes?: string[] } = {};
+            try {
+              const response = await fetch(`/api/product-draft?mall=gmarket&productId=${encodeURIComponent(linkInfo.productId)}`, { headers: { Accept: "application/json" } });
+              if (response.ok) payload = await response.json();
+            } catch { /* 상품번호를 보존한 빈 초안으로 계속 진행 */ }
+            const name = String(payload.name ?? "");
+            return [{
+              id: `link-${linkIndex}-0-${Date.now()}`,
+              sourceUrl: linkInfo.sourceUrl,
+              mall: "G마켓",
+              productId: linkInfo.productId,
+              name,
+              rawName: name,
+              spec: "",
+              unit: "개",
+              quantity: 1,
+              unitPrice: safeNumber(payload.price, 0),
+              lookupStatus: String(payload.lookupStatus ?? "confirmation-required"),
+              confidence: Number(payload.confidence ?? 0),
+              priceSource: String(payload.source ?? "확인 필요"),
+              notes: Array.isArray(payload.notes) ? payload.notes.map(String) : ["원본 상품 화면을 보며 상품명과 예상단가를 확인하세요."],
+            } satisfies LinkDraft];
+          }
+
+          try {
+            const order = await analyzePublicShoppingLink(sourceUrl) as { mall?: string; items?: Array<Record<string, unknown>> };
+            return (order.items ?? []).map((row, itemIndex) => {
+              const warnings = Array.isArray(row._warnings) ? row._warnings.map(String) : [];
+              const name = String(row["내용"] ?? "");
+              return {
+                id: `link-${linkIndex}-${itemIndex}-${Date.now()}`,
+                sourceUrl,
+                mall: String(order.mall ?? new URL(sourceUrl).hostname.replace(/^www\./, "")),
+                productId: (order.items?.length ?? 0) > 1 ? `링크 ${linkIndex + 1} · 품목 ${itemIndex + 1}` : `상품 링크 ${linkIndex + 1}`,
+                name,
+                rawName: String(row._rawName ?? name),
+                spec: String(row["규격"] ?? ""),
+                unit: String(row["단위"] ?? "개"),
+                quantity: safeNumber(row["수량"], 1),
+                unitPrice: safeNumber(row["단가"], 0),
+                lookupStatus: "found",
+                confidence: warnings.length ? 0.65 : 0.8,
+                priceSource: "공개 상품 페이지",
+                notes: warnings.map((warning) => `${warning} ${warningText[warning] ?? "확인 필요"}`),
+              } satisfies LinkDraft;
+            });
+          } catch {
+            const host = new URL(sourceUrl).hostname.replace(/^www\./, "");
+            return [{
+              id: `link-${linkIndex}-0-${Date.now()}`,
+              sourceUrl,
+              mall: host,
+              productId: `상품 링크 ${linkIndex + 1}`,
+              name: "",
+              rawName: "",
+              spec: "",
+              unit: "개",
+              quantity: 1,
+              unitPrice: 0,
+              lookupStatus: "confirmation-required",
+              confidence: 0,
+              priceSource: "확인 필요",
+              notes: ["쇼핑몰이 공개 조회를 막았습니다. 원본을 보며 빈칸을 확인하세요."],
+            } satisfies LinkDraft];
+          }
+        }));
+        batch.forEach((drafts) => allDrafts.push(...drafts));
       }
-      const order = await analyzePublicShoppingLink(shoppingUrl);
-      const error = applyOrder(order, "쇼핑몰 링크");
-      if (error) throw new Error(error);
-      setLinkKind("success");
-      setLinkStatus("링크에서 구조화된 상품 정보를 가져왔어요. 금액을 검수해 주세요.");
+      setLinkDrafts(allDrafts);
+      const ready = allDrafts.filter((draft) => draft.name && draft.unitPrice > 0).length;
+      setLinkKind(ready === allDrafts.length ? "success" : "needs-confirmation");
+      setLinkStatus(`${links.length}개 링크에서 ${allDrafts.length}개 상품 초안을 만들었어요. ${allDrafts.length - ready}개는 빈칸 확인이 필요합니다.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "링크를 읽지 못했습니다.";
-      if (normalizedShoppingUrl) {
-        const url = new URL(normalizedShoppingUrl);
-        setLinkDraft({
-          sourceUrl: normalizedShoppingUrl,
-          mall: url.hostname.replace(/^www\./, ""),
-          productId: "상품 링크",
-          name: "",
-          spec: "",
-          unit: "개",
-          quantity: 1,
-          unitPrice: 0,
-          paidTotal: "",
-          lookupStatus: "confirmation-required",
-        });
-        setLinkKind("needs-confirmation");
-        setLinkStatus("외부에서 읽지 못한 값만 입력하면 견적 초안을 만들 수 있어요.");
-      } else {
-        setLinkKind("error");
-        setLinkStatus(message);
-      }
+      setLinkKind("error");
+      setLinkStatus(message);
     }
   };
 
-  const updateLinkDraft = (patch: Partial<LinkDraft>) => {
-    setLinkDraft((current) => current ? { ...current, ...patch } : current);
+  const updateLinkDraft = (id: string, patch: Partial<LinkDraft>) => {
+    setLinkDrafts((current) => current.map((draft) => draft.id === id ? { ...draft, ...patch } : draft));
     setDraftError("");
   };
 
-  const addLinkDraft = () => {
-    if (!linkDraft) return;
-    const name = linkDraft.name.trim();
-    const quantity = safeNumber(linkDraft.quantity, 0);
-    const unitPrice = safeNumber(linkDraft.unitPrice, 0);
-    const paidTotal = safeNumber(linkDraft.paidTotal, 0);
-    if (!name) { setDraftError("상품명을 입력해 주세요."); return; }
-    if (!Number.isInteger(quantity) || quantity < 1) { setDraftError("수량은 1개 이상이어야 합니다."); return; }
-    if (unitPrice < 1) { setDraftError("실제 구매 예정 단가를 입력해 주세요."); return; }
+  const addLinkDrafts = () => {
+    if (!linkDrafts.length) return;
+    const invalidIndex = linkDrafts.findIndex((draft) => !draft.name.trim() || !Number.isInteger(draft.quantity) || draft.quantity < 1 || draft.unitPrice < 1);
+    if (invalidIndex >= 0) {
+      const draft = linkDrafts[invalidIndex];
+      const field = !draft.name.trim() ? "상품명" : draft.quantity < 1 ? "수량" : "예상단가";
+      setDraftError(`${invalidIndex + 1}번 상품의 ${field}을(를) 확인해 주세요.`);
+      return;
+    }
+    const budget = safeNumber(draftBudget, 0);
     const error = applyOrder({
-      mall: linkDraft.mall,
-      sourceUrl: linkDraft.sourceUrl,
-      orderNo: linkDraft.productId === "상품 링크" ? "상품 링크" : `상품번호 ${linkDraft.productId}`,
-      paidTotal: paidTotal || quantity * unitPrice,
-      _warnings: paidTotal ? [] : ["V08"],
-      _extractedBy: "confirmed-link-draft",
-      items: [{
-        내용: name,
-        규격: linkDraft.spec.trim(),
-        단위: linkDraft.unit.trim() || "개",
-        수량: quantity,
-        단가: unitPrice,
-        금액: quantity * unitPrice,
-        _rawName: name,
+      mall: linkDrafts.length > 1 ? "여러 쇼핑몰" : linkDrafts[0].mall,
+      stage: "pre-purchase",
+      budget,
+      paidTotal: null,
+      sourceUrl: linkDrafts[0].sourceUrl,
+      sourceUrls: linkDrafts.map((draft) => draft.sourceUrl),
+      orderNo: `상품 링크 ${linkDrafts.length}개`,
+      _warnings: [],
+      _extractedBy: "confirmed-link-list",
+      items: linkDrafts.map((draft) => ({
+        내용: draft.name.trim(),
+        규격: draft.spec.trim(),
+        단위: draft.unit.trim() || "개",
+        수량: draft.quantity,
+        단가: draft.unitPrice,
+        금액: draft.quantity * draft.unitPrice,
+        _rawName: draft.rawName || draft.name,
+        sourceUrl: draft.sourceUrl,
         _warnings: [],
         excluded: false,
-      }],
-    }, "상품 링크 초안");
+      })),
+    }, "상품 링크 목록");
     if (error) { setDraftError(error); return; }
     setLinkKind("success");
-    setLinkStatus("확인한 상품을 검수표에 추가했어요. 결제 총액만 마지막으로 대조해 주세요.");
+    setLinkStatus(`${linkDrafts.length}개 상품을 구매 전 검수표에 추가했어요. 예산 한도와 예상 합계를 확인해 주세요.`);
   };
 
   const dragBookmarklet = (event: DragEvent<HTMLAnchorElement>) => {
@@ -454,7 +520,10 @@ export default function ReviewApp() {
       mall: meta.mall,
       orderNo: meta.orderNo,
       paidTotal: meta.paidTotal,
+      budget: meta.budget,
+      stage: meta.stage,
       sourceUrl: meta.sourceUrl,
+      sourceUrls: meta.sourceUrls,
       reviewedAt: new Date().toISOString(),
       items: items.map((item) => ({
         내용: item.내용,
@@ -464,6 +533,7 @@ export default function ReviewApp() {
         단가: item.단가,
         금액: item.수량 * item.단가,
         _rawName: item._rawName,
+        sourceUrl: item.sourceUrl,
         excluded: item.excluded,
         ...(item.excludeReason ? { excludeReason: item.excludeReason } : {}),
       })),
@@ -489,29 +559,37 @@ export default function ReviewApp() {
 
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
-          <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">상품 링크만 붙여넣으세요</h2><p>상품번호와 공개 정보를 먼저 채우고, 링크에 없는 수량·옵션·실제 단가만 확인합니다.</p></div>
+          <div className="quick-start-copy"><span>STEP 1 · 구매 전 품의</span><h2 id="quick-start-title">상품 링크를 한 줄에 하나씩 붙여넣으세요</h2><p>최대 20개 링크의 상품명·공개 가격과 출처를 확인하고, 수량과 예산 한도만 검수합니다.</p></div>
           <form className="link-import-form" onSubmit={(event) => { event.preventDefault(); void analyzeShoppingLink(); }}>
-            <label htmlFor="shopping-url">쇼핑몰 상품 링크</label>
-            <div><input id="shopping-url" type="url" value={shoppingUrl} onChange={(event) => { setShoppingUrl(event.target.value); setLinkDraft(null); setDraftError(""); setLinkKind("idle"); setLinkStatus("상품 링크를 붙여넣으면 견적 초안을 만들어요."); }} placeholder="https://… 상품 링크를 붙여넣으세요" autoComplete="url" /><button type="submit" disabled={!shoppingUrl.trim() || linkKind === "working"}>{linkKind === "working" ? "확인 중…" : "상품 초안 만들기"}</button></div>
+            <label htmlFor="shopping-url">쇼핑몰 상품 링크 · 여러 개 가능</label>
+            <div><textarea id="shopping-url" value={shoppingUrl} onChange={(event) => { setShoppingUrl(event.target.value); setLinkDrafts([]); setDraftError(""); setLinkKind("idle"); setLinkStatus("상품 링크를 붙여넣으면 견적 초안을 만들어요."); }} placeholder={"https://…/상품1\nhttps://…/상품2"} rows={Math.min(Math.max(shoppingUrl.split(/\r?\n/).length, 2), 6)} autoComplete="url" /><button type="submit" disabled={!shoppingUrl.trim() || linkKind === "working"}>{linkKind === "working" ? "확인 중…" : "상품 초안 만들기"}</button></div>
           </form>
           <div className={`link-status ${linkKind}`} aria-live="polite"><span aria-hidden="true" />{linkStatus}</div>
-          {linkDraft && (
+          {linkDrafts.length > 0 && (
             <section className="link-draft-card" aria-labelledby="link-draft-title">
               <div className="link-draft-heading">
-                <div><span className="mall-badge">{linkDraft.mall} · {linkDraft.productId}</span><h3 id="link-draft-title">부족한 값만 확인해 주세요</h3><p>{linkDraft.lookupStatus === "found" ? "공개 상품정보를 먼저 채웠습니다. 실제 구매 조건과 같은지 확인하세요." : "쇼핑몰이 자동 조회를 막아도 상품 링크는 보존했습니다. 원본을 보며 빈칸만 입력하세요."}</p></div>
-                <a href={linkDraft.sourceUrl} target="_blank" rel="noreferrer">원본 상품 확인 ↗</a>
+                <div><span className="mall-badge">상품 초안 · {linkDrafts.length}개</span><h3 id="link-draft-title">가격 출처와 빈칸만 확인해 주세요</h3><p>수량은 링크에 없으므로 1로 시작합니다. 실제 구입 수량과 선택 옵션 가격으로 수정하세요.</p></div>
               </div>
-              <div className="link-draft-grid">
-                <label className="draft-name">내용 <b>필수</b><input value={linkDraft.name} onChange={(event) => updateLinkDraft({ name: event.target.value })} placeholder="상품명을 입력하세요" /></label>
-                <label>규격·옵션 <b>선택</b><input value={linkDraft.spec} onChange={(event) => updateLinkDraft({ spec: event.target.value })} placeholder="예: 250mL · 파란색" /></label>
-                <label>단위 <b>필수</b><input value={linkDraft.unit} onChange={(event) => updateLinkDraft({ unit: event.target.value })} placeholder="개" /></label>
-                <label>수량 <b>필수</b><input type="number" min="1" step="1" value={linkDraft.quantity} onChange={(event) => updateLinkDraft({ quantity: safeNumber(event.target.value, 1) })} /></label>
-                <label>예상단가 <b>필수</b><span className="money-field"><input type="number" min="0" step="1" value={linkDraft.unitPrice || ""} onChange={(event) => updateLinkDraft({ unitPrice: safeNumber(event.target.value) })} placeholder="0" /><i>원</i></span></label>
-                <label>결제 총액 <b>선택</b><span className="money-field"><input type="number" min="0" step="1" value={linkDraft.paidTotal} onChange={(event) => updateLinkDraft({ paidTotal: event.target.value })} placeholder="쿠폰·배송비 포함" /><i>원</i></span></label>
+              <div className="link-draft-list">
+                {linkDrafts.map((draft, index) => (
+                  <article className="link-draft-item" key={draft.id} aria-labelledby={`link-draft-${index}`}>
+                    <div className="draft-item-heading"><div><span>{index + 1}</span><strong id={`link-draft-${index}`}>{draft.mall} · {draft.productId}</strong><em className={draft.confidence >= .8 ? "high" : draft.confidence >= .6 ? "medium" : "low"}>{draft.confidence ? `가격 신뢰도 ${Math.round(draft.confidence * 100)}%` : "직접 확인"}</em></div><a href={draft.sourceUrl} target="_blank" rel="noreferrer">원본 보기 ↗</a></div>
+                    <div className="link-draft-grid">
+                      <label className="draft-name">내용 <b>필수</b><input value={draft.name} onChange={(event) => updateLinkDraft(draft.id, { name: event.target.value })} placeholder="상품명을 입력하세요" /></label>
+                      <label>규격·옵션 <b>선택</b><input value={draft.spec} onChange={(event) => updateLinkDraft(draft.id, { spec: event.target.value })} placeholder="예: 250mL · 파란색" /></label>
+                      <label>단위 <b>필수</b><input value={draft.unit} onChange={(event) => updateLinkDraft(draft.id, { unit: event.target.value })} placeholder="개" /></label>
+                      <label>수량 <b>필수</b><input type="number" min="1" step="1" value={draft.quantity} onChange={(event) => updateLinkDraft(draft.id, { quantity: safeNumber(event.target.value, 1) })} /></label>
+                      <label>예상단가 <b>필수</b><span className="money-field"><input type="number" min="0" step="1" value={draft.unitPrice || ""} onChange={(event) => updateLinkDraft(draft.id, { unitPrice: safeNumber(event.target.value) })} placeholder="0" /><i>원</i></span></label>
+                      <div className="draft-amount"><span>예상금액</span><strong>{won(draft.quantity * draft.unitPrice)}원</strong></div>
+                    </div>
+                    <div className="draft-provenance"><span>가격 출처 · {draft.priceSource}</span>{draft.notes.map((note) => <p key={note}>{note}</p>)}</div>
+                  </article>
+                ))}
               </div>
               <div className="link-draft-footer">
-                <div><span>예상금액</span><strong>{won(linkDraft.quantity * linkDraft.unitPrice)}원</strong><small>수량 × 예상단가</small></div>
-                <button type="button" onClick={addLinkDraft}>확인하고 검수표에 추가</button>
+                <label className="draft-budget">예산 한도 <b>선택</b><span className="money-field"><input type="number" min="0" step="1" value={draftBudget} onChange={(event) => { setDraftBudget(event.target.value); setDraftError(""); }} placeholder="예: 300000" /><i>원</i></span></label>
+                <div><span>예상 합계</span><strong>{won(draftTotal)}원</strong><small>{draftBudget && safeNumber(draftBudget) < draftTotal ? `예산보다 ${won(draftTotal - safeNumber(draftBudget))}원 초과` : "수량 × 예상단가"}</small></div>
+                <button type="button" onClick={addLinkDrafts}>확인한 {linkDrafts.length}개를 검수표에 추가</button>
               </div>
               {draftError && <p className="draft-error" role="alert">{draftError}</p>}
             </section>
@@ -525,15 +603,23 @@ export default function ReviewApp() {
         {hasItems ? <>
         <div className="page-heading">
           <div>
-            <p className="eyebrow">{meta.mall} · 주문 {meta.orderNo}</p>
+            <p className="eyebrow">{meta.mall} · {meta.stage === "pre-purchase" ? "구매 전 예상 견적" : `주문 ${meta.orderNo}`}</p>
             <h1>내역을 한 번 더<br />확인해 주세요.</h1>
-            <p className="heading-copy">기계가 옮겨 적고, 선생님이 판단합니다.<br />노란 표시만 확인하면 견적서가 완성돼요.</p>
-            {meta.sourceUrl && <a className="source-link" href={meta.sourceUrl} target="_blank" rel="noreferrer">원본 주문내역 열기 <span aria-hidden="true">↗</span></a>}
+            <p className="heading-copy">기계가 옮겨 적고, 선생님이 판단합니다.<br />{meta.stage === "pre-purchase" ? "수량·예상단가와 예산 한도를 확인하세요." : "노란 표시만 확인하면 견적서가 완성돼요."}</p>
+            {meta.sourceUrl && <a className="source-link" href={meta.sourceUrl} target="_blank" rel="noreferrer">{meta.sourceUrls.length > 1 ? `첫 번째 원본 상품 열기 · 총 ${meta.sourceUrls.length}개` : "원본 주문내역 열기"} <span aria-hidden="true">↗</span></a>}
           </div>
           <div className="summary-card" aria-label="합계 요약">
-            <div className="summary-topline"><span>결제 총액</span><label className="paid-total-input"><input type="number" min="0" step="1" value={meta.paidTotal} onChange={(event) => setMeta((current) => ({ ...current, paidTotal: safeNumber(event.target.value), warnings: current.warnings.filter((warning) => warning !== "V08") }))} aria-label="결제 총액" /><b>원</b></label></div>
-            <div className="summary-metric"><span>포함 품목 합계</span><b>{won(totals.total)}원</b></div>
-            {totals.delta === 0 ? <div className="match-pill"><span aria-hidden="true">✓</span> 결제 금액과 정확히 일치해요</div> : <div className="match-pill mismatch"><span aria-hidden="true">!</span> 차액 {totals.delta > 0 ? "+" : ""}{won(totals.delta)}원</div>}
+            <div className="summary-topline"><span>{meta.stage === "pre-purchase" ? "예산 한도" : "결제 총액"}</span><label className="paid-total-input"><input type="number" min="0" step="1" value={meta.stage === "pre-purchase" ? meta.budget || "" : meta.paidTotal} onChange={(event) => setMeta((current) => current.stage === "pre-purchase" ? { ...current, budget: safeNumber(event.target.value) } : { ...current, paidTotal: safeNumber(event.target.value), warnings: current.warnings.filter((warning) => warning !== "V08") })} aria-label={meta.stage === "pre-purchase" ? "예산 한도" : "결제 총액"} placeholder={meta.stage === "pre-purchase" ? "입력 선택" : undefined} /><b>원</b></label></div>
+            <div className="summary-metric"><span>{meta.stage === "pre-purchase" ? "구매 예상 합계" : "포함 품목 합계"}</span><b>{won(totals.total)}원</b></div>
+            {meta.stage === "pre-purchase"
+              ? meta.budget === 0
+                ? <div className="match-pill neutral"><span aria-hidden="true">i</span> 예산을 입력하면 초과 여부를 확인해요</div>
+                : totals.delta >= 0
+                  ? <div className="match-pill"><span aria-hidden="true">✓</span> 예산 잔액 {won(totals.delta)}원</div>
+                  : <div className="match-pill mismatch"><span aria-hidden="true">!</span> 예산보다 {won(-totals.delta)}원 초과</div>
+              : totals.delta === 0
+                ? <div className="match-pill"><span aria-hidden="true">✓</span> 결제 금액과 정확히 일치해요</div>
+                : <div className="match-pill mismatch"><span aria-hidden="true">!</span> 차액 {totals.delta > 0 ? "+" : ""}{won(totals.delta)}원</div>}
           </div>
         </div>
 
@@ -557,6 +643,7 @@ export default function ReviewApp() {
                 <span className="name-cell" role="cell">
                   <span className="item-line"><input className="cell-input name-input" value={item.내용} onChange={(event) => updateItem(item.id, { 내용: event.target.value, warnings: item.warnings.filter((warning) => warning !== "V03") })} aria-label={`${item.내용} 품명`} />{item.warnings.map((warning) => <em key={warning}>{warning}</em>)}</span>
                   <small title={item._rawName}>{item._rawName}</small>
+                  {item.sourceUrl && <a className="item-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">원본 상품 ↗</a>}
                   {item.excluded && <span className="exclude-note">제외 사유 · {item.excludeReason ?? "검수에서 제외"}</span>}
                 </span>
                 <span role="cell"><input className="cell-input" value={item.규격} onChange={(event) => updateItem(item.id, { 규격: event.target.value })} aria-label={`${item.내용} 규격`} /></span>
@@ -577,7 +664,7 @@ export default function ReviewApp() {
           <section className="empty-review" aria-label="불러온 품목 없음">
             <span className="empty-review-icon" aria-hidden="true">▤</span>
             <h2>아직 불러온 품목이 없어요</h2>
-            <p>위에 장바구니·주문 링크를 붙여넣거나 PDF, 엑셀 견적서, 장바구니 캡처를 올려 주세요.</p>
+            <p>위에 상품 링크를 한 줄에 하나씩 붙여넣거나 PDF, 엑셀 견적서, 장바구니 캡처를 올려 주세요.</p>
             <button type="button" onClick={() => setImportOpen(true)}>파일이나 주문 화면으로 시작하기</button>
           </section>
         )}
@@ -585,7 +672,7 @@ export default function ReviewApp() {
         <section className="help-stack" aria-label="가져오기 도움말">
           <details>
             <summary><span>정확하게 가져오는 권장 순서</span><b>+</b></summary>
-            <div><p><strong>상품 1개</strong> 링크를 붙여넣고 자동으로 채워진 값과 수량·실제 단가를 확인합니다.</p><p><strong>여러 상품</strong> 쇼핑몰에서 내려받은 엑셀·PDF를 올립니다. 파일이 없으면 글자를 크게 확대한 장바구니 캡처를 사용하세요.</p><p><strong>마지막 수단</strong> 로그인 주문 화면 한꺼번에 가져오기는 고급 기능에서 이용할 수 있습니다.</p></div>
+            <div><p><strong>후보 상품</strong> 최대 20개 링크를 한 줄에 하나씩 붙여넣고 가격 출처·신뢰도·수량을 확인합니다.</p><p><strong>장바구니</strong> 쇼핑몰에서 내려받은 엑셀·PDF를 올립니다. 파일이 없으면 글자를 크게 확대한 장바구니 캡처를 사용하세요.</p><p><strong>예산 확인</strong> 구매 전에는 결제 총액이 없어도 오류가 아닙니다. 예산 한도를 입력하면 <strong>V15</strong>로 초과 여부를 확인합니다.</p></div>
           </details>
           <details>
             <summary><span>왜 주문 화면 붙여넣기는 보조 기능인가요?</span><b>+</b></summary>
