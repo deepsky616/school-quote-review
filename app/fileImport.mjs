@@ -92,6 +92,95 @@ export async function importExcel(file) {
   return spreadsheetRowsToOrder(sheet.data, file.name);
 }
 
+const cleanPdfCell = (value) => String(value ?? "")
+  .replace(/[\u0000-\u001f]+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const pdfMoney = (value) => {
+  const match = cleanPdfCell(value).match(/\d[\d,]*/);
+  return match ? Number(match[0].replaceAll(",", "")) : 0;
+};
+
+const MANAN_UNITS = "개|롤|속|자루|세트|팩|박스|권|매|병|봉|묶음|식";
+
+export function mananPositionedPagesToOrder(positionedPages) {
+  const allCells = positionedPages.flat().map((cell) => ({
+    ...cell,
+    value: cleanPdfCell(cell.value),
+  })).filter((cell) => cell.value);
+  const documentText = allCells.map((cell) => cell.value).join(" ");
+  const isManan = /만안문구센터|mananmungu\.co\.kr/i.test(documentText);
+  const hasTableHeader = /제품명/.test(documentText) && /판매단가/.test(documentText) && /수량/.test(documentText) && /합계/.test(documentText);
+  if (!isManan || !hasTableHeader) return null;
+
+  const items = positionedPages.flatMap((pageCells) => {
+    const cells = pageCells.map((cell) => ({ ...cell, value: cleanPdfCell(cell.value) })).filter((cell) => cell.value);
+    const priceCells = cells.filter((cell) => cell.x >= 420 && cell.x < 500 && /\d[\d,]*(?:\s*원)?/.test(cell.value) && pdfMoney(cell.value) > 0);
+    return priceCells.flatMap((priceCell) => {
+      const amountCell = cells
+        .filter((cell) => cell.x >= 530 && Math.abs(cell.y - priceCell.y) <= 4 && pdfMoney(cell.value) > 0)
+        .sort((a, b) => Math.abs(a.y - priceCell.y) - Math.abs(b.y - priceCell.y))[0];
+      const quantityCells = cells
+        .filter((cell) => cell.x >= 490 && cell.x < 535 && Math.abs(cell.y - priceCell.y) <= 9)
+        .sort((a, b) => a.x - b.x);
+      const nameCells = cells
+        .filter((cell) => cell.x >= 135 && cell.x < 420 && Math.abs(cell.y - priceCell.y) <= 8)
+        .filter((cell) => !/^(?:제품명|이미지|색상\s*:|point\s*0)$/i.test(cell.value))
+        .sort((a, b) => a.x - b.x);
+      const quantityText = cleanPdfCell(quantityCells.map((cell) => cell.value).join(" "));
+      const quantityMatch = quantityText.match(new RegExp(`^(\\d{1,4})\\s*(${MANAN_UNITS})$`));
+      const name = cleanPdfCell(nameCells.map((cell) => cell.value).join(" "));
+      const unitPrice = pdfMoney(priceCell.value);
+      const amount = pdfMoney(amountCell?.value);
+      if (!name || !quantityMatch || !unitPrice || !amount) return [];
+
+      const optionText = cells
+        .filter((cell) => cell.x >= 135 && cell.x < 420)
+        .filter((cell) => {
+          const distance = Math.abs(cell.y - priceCell.y);
+          return distance > 8 && distance <= 18;
+        })
+        .sort((a, b) => a.x - b.x)
+        .map((cell) => cell.value)
+        .join(" ");
+      const spec = /색상\s*:/i.test(optionText)
+        ? optionText.replace(/^.*?색상\s*:\s*/i, "").trim()
+        : "";
+      const quantity = Number(quantityMatch[1]);
+      const warnings = amount === unitPrice * quantity ? [] : ["V06"];
+      return [{
+        내용: name,
+        규격: spec,
+        단위: quantityMatch[2],
+        수량: quantity,
+        단가: unitPrice,
+        금액: amount,
+        _rawName: `${name} | ${priceCell.value} | ${quantityText} | ${amountCell.value}`,
+        _warnings: warnings,
+        excluded: false,
+      }];
+    });
+  }).slice(0, 120);
+
+  if (!items.length) return null;
+  const calculatedTotal = items.reduce((sum, item) => sum + item.금액, 0);
+  const totalLabel = allCells.find((cell) => /구입총액/.test(cell.value));
+  const totalAmountCell = totalLabel && allCells
+    .filter((cell) => cell.x > totalLabel.x && Math.abs(cell.y - totalLabel.y) <= 4 && pdfMoney(cell.value) > 0)
+    .sort((a, b) => a.x - b.x)[0];
+  const documentedTotal = pdfMoney(totalLabel?.value) || pdfMoney(totalAmountCell?.value) || calculatedTotal;
+  return {
+    mall: "만안문구센터",
+    orderNo: "PDF 문서에서 가져옴",
+    capturedAt: new Date().toISOString(),
+    paidTotal: documentedTotal,
+    _warnings: documentedTotal === calculatedTotal ? [] : ["V07"],
+    _extractedBy: "manan-pdf-table",
+    items,
+  };
+}
+
 export async function importPdf(file, onProgress = (progress, label) => { void progress; void label; }) {
   onProgress(0.08, "PDF 글자를 읽고 있어요…");
   const pdfjs = await import("pdfjs-dist");
@@ -101,6 +190,7 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdf.worker.min.mjs", pageBaseUrl).href;
   const pdfDocument = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const lines = [];
+  const positionedPages = [];
 
   for (let pageNo = 1; pageNo <= Math.min(pdfDocument.numPages, 20); pageNo += 1) {
     onProgress(0.08 + (pageNo / pdfDocument.numPages) * 0.72, `${pageNo}/${pdfDocument.numPages}쪽을 읽고 있어요…`);
@@ -110,6 +200,7 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
       .filter((item) => "str" in item && item.str.trim())
       .map((item) => ({ value: item.str.trim(), x: item.transform[4], y: item.transform[5] }))
       .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x);
+    positionedPages.push(positioned);
     const rows = [];
     for (const item of positioned) {
       const current = rows[rows.length - 1];
@@ -119,8 +210,10 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
     lines.push(...rows.map((row) => row.cells.join("\t")));
   }
 
-  if (!lines.length) throw new Error("[V-P02] 글자가 없는 스캔 PDF입니다. PDF 페이지를 캡처해 사진으로 올려 주세요.");
+  if (!lines.length) throw new Error("[V-P02] 글자가 없는 스캔 PDF입니다. 문자 인식(OCR)을 켜고 PDF로 다시 저장해 주세요.");
   onProgress(0.9, "품목과 금액을 구분하고 있어요…");
+  const mananOrder = mananPositionedPagesToOrder(positionedPages);
+  if (mananOrder) return mananOrder;
   return parseOrderText(lines.join("\n"));
 }
 

@@ -1,10 +1,10 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
-import { importExcel, importImage, importPdf } from "./fileImport.mjs";
+import { importPdf } from "./fileImport.mjs";
 import { parseOrderText } from "./orderTextParser.mjs";
 
-type ImportMode = "paste" | "file" | "browser" | "manual";
+type ImportMode = "paste" | "file" | "paper" | "browser" | "manual";
 
 type ImportDialogProps = {
   onClose: () => void;
@@ -77,7 +77,6 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
   const [orderNo, setOrderNo] = useState("");
   const [paidTotal, setPaidTotal] = useState("");
   const [manualRows, setManualRows] = useState("");
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const requestTimer = useRef<number | null>(null);
 
@@ -99,9 +98,8 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
     return () => {
       window.removeEventListener("message", receiveCapture);
       if (requestTimer.current) window.clearTimeout(requestTimer.current);
-      if (imagePreview) URL.revokeObjectURL(imagePreview);
     };
-  }, [imagePreview, onImport]);
+  }, [onImport]);
 
   const requestBrowserCapture = () => {
     setStatusKind("working");
@@ -143,23 +141,12 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
     }
     setStatusKind("working");
     setStatus("파일을 브라우저 안에서 읽고 있어요…");
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
-    setImagePreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
     try {
       const lower = file.name.toLowerCase();
-      let order: unknown;
-      if (lower.endsWith(".xlsx")) order = await importExcel(file);
-      else if (lower.endsWith(".xls")) throw new Error("구형 .xls는 지원하지 않습니다. Excel에서 .xlsx로 다시 저장해 주세요.");
-      else if (lower.endsWith(".pdf")) order = await importPdf(file, (progress: number, label: string) => {
+      if (!lower.endsWith(".pdf") && file.type !== "application/pdf") throw new Error("PDF 파일만 올릴 수 있습니다.");
+      const order = await importPdf(file, (progress: number, label: string) => {
         setStatusKind("working"); setStatus(`${label} ${Math.round(progress * 100)}%`);
       });
-      else if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(lower)) order = await importImage(file, (progress: number, label: string) => {
-        setStatusKind("working"); setStatus(`${label} ${Math.round(progress * 100)}%`);
-      });
-      else {
-        const raw = await file.text();
-        order = lower.endsWith(".csv") ? csvToOrder(raw, file.name) : JSON.parse(raw);
-      }
       const importError = onImport(order, file.name);
       if (importError) throw new Error(importError);
     } catch (error) {
@@ -216,13 +203,14 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title">
         <div className="dialog-heading">
-          <div><p className="dialog-kicker">ORDER IMPORT</p><h2 id="import-title">주문내역 불러오기</h2><p>설치 없이 복사·붙여넣기하거나, 갖고 있는 문서와 캡처를 올려 주세요.</p></div>
+          <div><p className="dialog-kicker">ORDER IMPORT</p><h2 id="import-title">주문내역 불러오기</h2><p>설치 없이 복사·붙여넣기하거나, 주문 화면·종이 문서를 PDF로 올려 주세요.</p></div>
           <button className="dialog-close" type="button" onClick={onClose} aria-label="닫기">×</button>
         </div>
 
-        <div className="import-tabs four-tabs" role="tablist" aria-label="불러오기 방법">
+        <div className="import-tabs five-tabs" role="tablist" aria-label="불러오기 방법">
           <button className={mode === "paste" ? "active" : ""} type="button" role="tab" aria-selected={mode === "paste"} onClick={() => setMode("paste")}><span className="recommended-dot" />텍스트 붙여넣기</button>
-          <button className={mode === "file" ? "active" : ""} type="button" role="tab" aria-selected={mode === "file"} onClick={() => setMode("file")}>문서·사진</button>
+          <button className={mode === "file" ? "active" : ""} type="button" role="tab" aria-selected={mode === "file"} onClick={() => setMode("file")}>PDF 문서</button>
+          <button className={mode === "paper" ? "active" : ""} type="button" role="tab" aria-selected={mode === "paper"} onClick={() => setMode("paper")}>종이 견적서·영수증</button>
           <button className={mode === "browser" ? "active" : ""} type="button" role="tab" aria-selected={mode === "browser"} onClick={() => setMode("browser")}>도우미</button>
           <button className={mode === "manual" ? "active" : ""} type="button" role="tab" aria-selected={mode === "manual"} onClick={() => setMode("manual")}>직접 입력</button>
         </div>
@@ -247,14 +235,28 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
 
         {mode === "file" && (
           <div className="import-panel" role="tabpanel">
-            <input ref={fileRef} className="file-input" type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.json,.csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*" onChange={importFile} />
+            <input ref={fileRef} className="file-input" type="file" accept=".pdf,application/pdf" onChange={importFile} />
             <button className="drop-zone" type="button" onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
               <span className="drop-icon" aria-hidden="true">↑</span>
-              <strong>PDF·엑셀 견적서·장바구니 캡처</strong>
-              <small>정확도 권장 순서: 쇼핑몰 엑셀·PDF → 큰 글씨 캡처 → 텍스트 붙여넣기</small>
+              <strong>주문내역 PDF 선택</strong>
+              <small>브라우저 인쇄에서 저장한 PDF 또는 문자 인식이 포함된 스캔 PDF</small>
             </button>
-            {imagePreview && <div className="capture-preview"><img src={imagePreview} alt="업로드한 장바구니 캡처 미리보기" /><p>캡처 글자는 자동 인식 후 검수 대상으로 표시됩니다.</p></div>}
-            <p className="format-fallback">기존 JSON·CSV도 계속 불러올 수 있습니다.</p>
+            <p className="format-fallback">사진·이미지 파일은 받지 않습니다. 종이 견적서는 문자 인식(OCR)이 포함된 PDF로 스캔해 주세요.</p>
+          </div>
+        )}
+
+        {mode === "paper" && (
+          <div className="import-panel" role="tabpanel">
+            <div className="pdf-save-guide modal-paper-guide">
+              <div className="pdf-save-heading"><div><span>가장 정확한 스캔 방법</span><h3>종이 문서를 문자 인식 PDF로 만드세요</h3></div><em>사진 파일 업로드 안 함</em></div>
+              <ol className="pdf-save-steps paper-scan-steps">
+                <li><b>1</b><div><strong>평평하고 밝게 놓기</strong><p>표 전체와 네 모서리가 보이도록 하고 그림자·반사를 피하세요.</p></div></li>
+                <li><b>2</b><div><strong>‘문서 스캔’으로 촬영</strong><p>자동 테두리 보정과 <mark>문자 인식(OCR)</mark>을 켜세요.</p></div></li>
+                <li><b>3</b><div><strong>한 개의 PDF로 저장</strong><p>여러 장을 합치고 300dpi 또는 원본 크기로 저장하세요.</p></div></li>
+              </ol>
+              <div className="paper-checklist"><strong>저장 후 확인</strong><span>상품명·단가·수량·합계가 선명함</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
+            </div>
+            <button className="dialog-primary paper-dialog-action" type="button" onClick={() => setMode("file")}>만든 PDF 선택하기 <span aria-hidden="true">→</span></button>
           </div>
         )}
 
@@ -290,7 +292,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
         )}
 
         <div className={`import-status ${statusKind}`} aria-live="polite"><span aria-hidden="true" />{status}</div>
-        <p className="privacy-note">개인정보 보호 · 주문 문서와 캡처는 서버에 저장하지 않고 이 브라우저 안에서만 처리됩니다.</p>
+        <p className="privacy-note">개인정보 보호 · 주문 문서는 서버에 저장하지 않고 이 브라우저 안에서만 처리됩니다.</p>
       </section>
     </div>
   );

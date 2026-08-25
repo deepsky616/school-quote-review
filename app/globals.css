@@ -83,7 +83,7 @@ button { cursor: pointer; }
 .quick-start-copy > span { color: var(--green); font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .quick-start-copy h2 { margin: 8px 0 7px; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.055em; }
 .quick-start-copy p { margin: 0; color: #68776f; font-size: 13px; line-height: 1.6; }
-.quick-start-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; padding: 5px; border: 1px solid #d4e2d8; border-radius: 15px; background: rgba(255,255,255,.62); }
+.quick-start-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 22px; padding: 5px; border: 1px solid #d4e2d8; border-radius: 15px; background: rgba(255,255,255,.62); }
 .quick-start-tabs button { min-width: 0; min-height: 72px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: #6d7b74; text-align: left; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease; }
 .quick-start-tabs button:hover { transform: translateY(-1px); color: #40564b; }
 .quick-start-tabs button.active { border-color: #a9c8b5; background: #fff; color: var(--ink); box-shadow: 0 8px 20px rgba(23,48,39,.08); }
@@ -122,6 +122,7 @@ button { cursor: pointer; }
 .paste-primary-actions label span { color: #9aa59f; font-weight: 650; }
 .paste-primary-actions input { width: 180px; height: 38px; padding: 0 10px; border: 1px solid #ced9d2; border-radius: 8px; background: #fff; color: var(--ink); text-align: right; }
 .quick-file-panel { margin-top: 20px; }
+.paper-document-panel { margin-top: 20px; }
 .quick-file-guidance { display: grid; grid-template-columns: auto 1fr; gap: 11px; padding: 13px 14px; border: 1px solid #dfd2a9; border-radius: 11px; background: #fff9e9; }
 .quick-file-guidance > span { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: #f0c857; color: #5f4810; font-size: 11px; font-weight: 950; }
 .quick-file-guidance strong { color: #654f18; font-size: 11px; }
@@ -140,6 +141,11 @@ button { cursor: pointer; }
 .pdf-save-steps mark { padding: 1px 3px; border-radius: 3px; background: #e4f2e8; color: #2e684e; font-weight: 850; }
 .pdf-save-tip { display: flex; align-items: center; gap: 7px; margin: 11px 0 0; color: #7d8983; font-size: 9px; line-height: 1.5; }
 .pdf-save-tip > span { width: 17px; height: 17px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #e9eeeb; color: #5e7267; font-size: 8px; font-weight: 900; }
+.paper-checklist { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e7e2; color: #61736a; font-size: 9px; }
+.paper-checklist strong { margin-right: 2px; color: #354f43; font-size: 10px; }
+.paper-checklist span { padding: 5px 7px; border-radius: 999px; background: #edf4ef; }
+.paper-checklist span::before { content: "✓ "; color: var(--green); font-weight: 950; }
+.paper-upload-action { display: block; margin: 12px 0 0 auto; padding: 11px 15px; border: 1px solid var(--green-dark); border-radius: 9px; background: var(--green); color: #fff; font-size: 11px; font-weight: 850; }
 .quick-file-zone { width: 100%; min-height: 208px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; padding: 24px; border: 1.5px dashed #9eb6a7; border-radius: 14px; background: rgba(255,255,255,.76); color: var(--ink); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .quick-file-zone:hover, .quick-file-zone:focus-visible { border-color: var(--green); background: #fff; box-shadow: 0 9px 24px rgba(23,48,39,.07); }
 .quick-file-zone:focus-visible { outline: 3px solid rgba(23,107,77,.16); outline-offset: 2px; }
@@ -378,6 +384,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .import-tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 0 30px; border-bottom: 1px solid #e8e8e1; }
 .import-tabs.four-tabs { grid-template-columns: repeat(4, 1fr); }
+.import-tabs.five-tabs { grid-template-columns: repeat(5, minmax(108px, 1fr)); overflow-x: auto; }
 .import-tabs button { min-height: 48px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #939c97; font-size: 12px; font-weight: 800; }
 .import-tabs button.active { border-bottom-color: var(--green); color: var(--ink); }
 .recommended-dot { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: #87b444; vertical-align: 1px; }
@@ -409,6 +416,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .optional-label { width: fit-content; padding: 5px 8px; border-radius: 6px; background: #eceee8; color: #6b7770; font-size: 9px; font-weight: 900; }
 .optional-card h3 { margin: 14px 0 7px; font-size: 19px; letter-spacing: -.04em; }
 .optional-card > p { margin: 0 0 20px; color: #758079; font-size: 12px; line-height: 1.65; }
+.modal-paper-guide { margin-top: 0; }
+.paper-dialog-action { display: block; margin: 12px 0 0 auto; }
 
 .drop-zone { width: 100%; min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px dashed #aebbb4; border-radius: 14px; background: #fafbf8; color: var(--ink); }
 .drop-zone:hover { border-color: var(--green); background: #f4f8f5; }

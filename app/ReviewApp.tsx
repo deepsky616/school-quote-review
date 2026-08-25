@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import ImportDialog from "./ImportDialog.tsx";
-import { importExcel, importImage, importPdf } from "./fileImport.mjs";
+import { importPdf } from "./fileImport.mjs";
 import { parseOrderText } from "./orderTextParser.mjs";
 
 type ReviewItem = {
@@ -247,15 +247,14 @@ export default function ReviewApp() {
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [message, setMessage] = useState("자동 저장됨");
   const [isImportOpen, setImportOpen] = useState(false);
-  const [quickStartMode, setQuickStartMode] = useState<"paste" | "file">("paste");
+  const [quickStartMode, setQuickStartMode] = useState<"paste" | "file" | "paper">("paste");
   const [pasteText, setPasteText] = useState("");
   const [pasteTotal, setPasteTotal] = useState("");
   const [pasteStatus, setPasteStatus] = useState("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다.");
   const [pasteKind, setPasteKind] = useState<"idle" | "success" | "error">("idle");
-  const [fileStatus, setFileStatus] = useState("PDF·엑셀 원본이 가장 정확하며, 화면 캡처는 글자가 크게 보이도록 올려 주세요.");
+  const [fileStatus, setFileStatus] = useState("브라우저 인쇄에서 저장한 주문내역 PDF를 올려 주세요.");
   const [fileKind, setFileKind] = useState<"idle" | "working" | "success" | "error">("idle");
   const [selectedFileName, setSelectedFileName] = useState("");
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const totals = useMemo(() => {
     const included = items.filter((item) => !item.excluded);
@@ -294,10 +293,6 @@ export default function ReviewApp() {
     }
   }, []);
 
-  useEffect(() => () => {
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
-  }, [imagePreview]);
-
   const importPastedOrder = () => {
     try {
       const order = parseOrderText(pasteText, { paidTotal: pasteTotal });
@@ -333,19 +328,12 @@ export default function ReviewApp() {
     setFileKind("working");
     setSelectedFileName(file.name);
     setFileStatus("파일을 이 브라우저 안에서 읽고 있어요…");
-    setImagePreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
     try {
       const lower = file.name.toLowerCase();
-      let order: unknown;
-      if (lower.endsWith(".xlsx")) order = await importExcel(file);
-      else if (lower.endsWith(".xls")) throw new Error("구형 .xls는 지원하지 않습니다. Excel에서 .xlsx로 다시 저장해 주세요.");
-      else if (lower.endsWith(".pdf")) order = await importPdf(file, (progress: number, label: string) => {
+      if (!lower.endsWith(".pdf") && file.type !== "application/pdf") throw new Error("PDF 파일만 올릴 수 있습니다.");
+      const order = await importPdf(file, (progress: number, label: string) => {
         setFileStatus(`${label} ${Math.round(progress * 100)}%`);
       });
-      else if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(lower)) order = await importImage(file, (progress: number, label: string) => {
-        setFileStatus(`${label} ${Math.round(progress * 100)}%`);
-      });
-      else throw new Error("PDF, XLSX, PNG, JPG 또는 WEBP 파일을 올려 주세요.");
       const error = applyOrder(order, file.name);
       if (error) throw new Error(error);
       setFileKind("success");
@@ -413,20 +401,23 @@ export default function ReviewApp() {
 
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
-          <div className="quick-start-copy"><span>STEP 1 · 자료 가져오기</span><h2 id="quick-start-title">주문내역을 가져오는 방법을 선택하세요</h2><p>복사되는 쇼핑몰은 주문 화면을 붙여넣고, 복사가 막힌 쇼핑몰은 PDF·엑셀·화면 캡처를 올리면 됩니다.</p></div>
+          <div className="quick-start-copy"><span>STEP 1 · 자료 가져오기</span><h2 id="quick-start-title">주문내역을 가져오는 방법을 선택하세요</h2><p>쇼핑몰 화면은 복사하거나 PDF로 저장하고, 종이 견적서·영수증은 문자 인식 PDF로 스캔하면 됩니다.</p></div>
           <nav className="shopping-order-links shared-shopping-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
             <div className="shopping-order-guide"><strong>먼저, 주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 상품명·수량·가격이 보이는 주문상세 화면을 여세요.</span></div>
             <div className="shopping-order-list">
               {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
             </div>
-            <p>바로가기는 주문 화면을 열기만 하며 자동 수집하지 않습니다. 화면이 열리면 복사가 되는 경우 1번, 안 되는 경우 2번을 선택하세요.</p>
+            <p>바로가기는 주문 화면을 열기만 하며 자동 수집하지 않습니다. 화면이 열리면 복사가 되는 경우 1번, 안 되는 경우 2번을 선택하세요. 종이 자료는 3번에서 스캔 방법을 확인할 수 있습니다.</p>
           </nav>
           <div className="quick-start-tabs" role="tablist" aria-label="주문내역 가져오기 방법">
             <button id="paste-method-tab" className={quickStartMode === "paste" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "paste"} aria-controls="paste-method-panel" onClick={() => setQuickStartMode("paste")}>
               <span className="method-tab-index" aria-hidden="true">1</span><span><b>주문 화면 복사·붙이기</b><small>대부분의 쇼핑몰 · 가장 빠른 방법</small></span><em>추천</em>
             </button>
             <button id="file-method-tab" className={quickStartMode === "file" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "file"} aria-controls="file-method-panel" onClick={() => setQuickStartMode("file")}>
-              <span className="method-tab-index" aria-hidden="true">2</span><span><b>문서·사진</b><small>복사가 안 되는 쇼핑몰 · PDF·캡처</small></span><em>대안</em>
+              <span className="method-tab-index" aria-hidden="true">2</span><span><b>PDF 문서</b><small>복사가 안 되는 쇼핑몰 · 주문 화면 PDF</small></span><em>대안</em>
+            </button>
+            <button id="paper-method-tab" className={quickStartMode === "paper" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "paper"} aria-controls="paper-method-panel" onClick={() => setQuickStartMode("paper")}>
+              <span className="method-tab-index" aria-hidden="true">3</span><span><b>종이 견적서·영수증</b><small>휴대폰 문서 스캔 · 문자 인식 PDF</small></span><em>스캔</em>
             </button>
           </div>
 
@@ -439,9 +430,9 @@ export default function ReviewApp() {
               <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
               <div className="paste-primary-actions"><button type="button" onClick={() => void pasteFromClipboard()}>클립보드에서 붙여넣기</button><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
             </div>
-          ) : (
+          ) : quickStartMode === "file" ? (
             <div className="quick-start-panel quick-file-panel" id="file-method-panel" role="tabpanel" aria-labelledby="file-method-tab">
-              <div className="quick-file-guidance"><span aria-hidden="true">!</span><div><strong>만안문구처럼 주문 화면을 복사할 수 없을 때 사용하세요</strong><p>가능하면 쇼핑몰에서 저장한 PDF·엑셀을 올리고, 파일이 없으면 상품명·수량·할인가·배송비가 함께 보이도록 캡처해 주세요.</p></div></div>
+              <div className="quick-file-guidance"><span aria-hidden="true">!</span><div><strong>만안문구처럼 주문 화면을 복사할 수 없을 때 사용하세요</strong><p>상품명·판매단가·수량·합계가 모두 보이는 주문 화면을 PDF로 저장해 올려 주세요.</p></div></div>
               <div className="pdf-save-guide" aria-labelledby="pdf-save-title">
                 <div className="pdf-save-heading"><div><span>가장 정확한 방법</span><h3 id="pdf-save-title">주문 화면을 PDF로 저장하는 방법</h3></div><em>Windows · Chrome · Edge</em></div>
                 <ol className="pdf-save-steps">
@@ -449,18 +440,32 @@ export default function ReviewApp() {
                   <li><b>2</b><div><strong><kbd>Ctrl</kbd> + <kbd>P</kbd> 누르기</strong><p>인쇄 화면의 프린터에서 <mark>PDF로 저장</mark> 또는 <mark>Microsoft Print to PDF</mark>를 선택하세요.</p></div></li>
                   <li><b>3</b><div><strong>전체 페이지 저장 후 업로드</strong><p>페이지는 ‘전체’로 저장하고, 아래에서 저장한 PDF 파일을 선택하세요.</p></div></li>
                 </ol>
-                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 인쇄 미리보기에서 상품이 빠지면 PDF 대신 선명한 화면 캡처를 올려 주세요.</p>
+                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 인쇄 미리보기에서 모든 상품 행이 보이는지 확인한 뒤 저장하세요.</p>
               </div>
-              <input ref={fileInputRef} className="file-input" type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.webp,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*" onChange={chooseQuickFile} />
+              <input ref={fileInputRef} className="file-input" type="file" accept=".pdf,application/pdf" onChange={chooseQuickFile} />
               <button className="quick-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>
                 <span className="quick-file-icon" aria-hidden="true">↑</span>
-                <strong>{selectedFileName || "문서 또는 사진을 선택하세요"}</strong>
-                <small>여기를 누르거나 파일을 끌어다 놓으세요 · 최대 25MB</small>
-                <span className="quick-file-formats"><b>PDF</b><b>XLSX</b><b>PNG·JPG</b></span>
+                <strong>{selectedFileName || "주문내역 PDF를 선택하세요"}</strong>
+                <small>여기를 누르거나 PDF 파일을 끌어다 놓으세요 · 최대 25MB</small>
+                <span className="quick-file-formats"><b>PDF 전용</b></span>
               </button>
-              {imagePreview && <div className="quick-file-preview"><img src={imagePreview} alt="업로드한 주문 화면 캡처 미리보기" /><div><strong>캡처 준비 완료</strong><p>글자를 자동 인식한 뒤 수량·가격 확인 항목을 표시합니다.</p></div></div>}
               <div className={`link-status ${fileKind}`} aria-live="polite"><span aria-hidden="true" />{fileStatus}</div>
-              <div className="quick-file-priority"><span><b>1</b> 쇼핑몰 PDF·엑셀</span><i aria-hidden="true">→</i><span><b>2</b> 선명한 화면 캡처</span><i aria-hidden="true">→</i><span><b>3</b> 노란 항목 확인</span></div>
+              <div className="quick-file-priority"><span><b>1</b> 주문 화면 열기</span><i aria-hidden="true">→</i><span><b>2</b> PDF로 저장</span><i aria-hidden="true">→</i><span><b>3</b> 업로드 후 확인</span></div>
+            </div>
+          ) : (
+            <div className="quick-start-panel paper-document-panel" id="paper-method-panel" role="tabpanel" aria-labelledby="paper-method-tab">
+              <div className="quick-file-guidance"><span aria-hidden="true">✓</span><div><strong>일반 사진보다 ‘문서 스캔 + 문자 인식(OCR) PDF’가 가장 정확합니다</strong><p>종이를 평평하게 펴고 표 전체가 한 화면에 들어오게 스캔하면 상품명·판매단가·수량·합계를 더 정확히 구분할 수 있습니다.</p></div></div>
+              <div className="pdf-save-guide" aria-labelledby="paper-scan-title">
+                <div className="pdf-save-heading"><div><span>종이 문서 권장 방법</span><h3 id="paper-scan-title">휴대폰으로 검색 가능한 PDF 만들기</h3></div><em>견적서 · 영수증 · 거래명세서</em></div>
+                <ol className="pdf-save-steps paper-scan-steps">
+                  <li><b>1</b><div><strong>종이를 평평하게 놓기</strong><p>그림자·구김·빛 반사를 없애고, 네 모서리와 모든 품목 행이 보이게 놓으세요.</p></div></li>
+                  <li><b>2</b><div><strong>휴대폰의 ‘문서 스캔’ 사용</strong><p>기본 문서 스캔이나 스캔 앱에서 자동 테두리 보정과 <mark>문자 인식(OCR)</mark>을 켜세요.</p></div></li>
+                  <li><b>3</b><div><strong>파일 형식을 PDF로 저장</strong><p>여러 장은 한 PDF로 묶고, 가능하면 300dpi·원본 크기로 저장하세요. JPG 사진은 올리지 않습니다.</p></div></li>
+                </ol>
+                <div className="paper-checklist"><strong>업로드 전 확인</strong><span>제품명·판매단가·수량·합계가 선명함</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
+                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 사진을 단순히 PDF로 인쇄한 파일은 글자가 검색되지 않을 수 있습니다. 반드시 문자 인식(OCR)을 사용하세요.</p>
+              </div>
+              <button className="paper-upload-action" type="button" onClick={() => setQuickStartMode("file")}>만든 PDF 업로드하기 <span aria-hidden="true">→</span></button>
             </div>
           )}
           <div className="quick-start-more"><span>도우미 또는 직접 입력이 필요하신가요?</span><button type="button" onClick={() => setImportOpen(true)}>다른 방법 보기</button></div>
@@ -529,15 +534,15 @@ export default function ReviewApp() {
           <section className="empty-review" aria-label="불러온 품목 없음">
             <span className="empty-review-icon" aria-hidden="true">▤</span>
             <h2>아직 불러온 품목이 없어요</h2>
-            <p>위 입력칸에 주문 화면 전체를 붙여넣거나 PDF, 엑셀 견적서, 장바구니 캡처를 올려 주세요.</p>
-            <button type="button" onClick={() => setImportOpen(true)}>파일이나 주문 화면으로 시작하기</button>
+            <p>위 입력칸에 주문 화면 전체를 붙여넣거나 주문 화면·종이 문서를 PDF로 만들어 올려 주세요.</p>
+            <button type="button" onClick={() => setImportOpen(true)}>PDF나 주문 화면으로 시작하기</button>
           </section>
         )}
 
         <section className="help-stack" aria-label="가져오기 도움말">
           <details>
             <summary><span>정확하게 가져오는 권장 순서</span><b>+</b></summary>
-            <div><p><strong>기본 방법</strong> 쇼핑몰 주문 화면에서 전체 선택 후 복사하고, 첫 입력칸에 그대로 붙여넣습니다.</p><p><strong>파일 자료</strong> 쇼핑몰에서 내려받은 엑셀·PDF가 있으면 보조 방법으로 올릴 수 있습니다.</p><p><strong>최종 확인</strong> 노란 표시가 있는 수량·예상단가만 원본 주문과 대조합니다.</p></div>
+            <div><p><strong>기본 방법</strong> 쇼핑몰 주문 화면에서 전체 선택 후 복사하고, 첫 입력칸에 그대로 붙여넣습니다.</p><p><strong>PDF 문서</strong> 복사가 안 되는 주문 화면은 PDF로 저장하고, 종이 문서는 문자 인식(OCR) PDF로 스캔합니다.</p><p><strong>최종 확인</strong> 노란 표시가 있는 수량·예상단가만 원본 주문과 대조합니다.</p></div>
           </details>
           <details>
             <summary><span>붙여넣은 뒤 무엇을 확인하나요?</span><b>+</b></summary>

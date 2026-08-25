@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-import { importPdf, spreadsheetRowsToOrder } from "../app/fileImport.mjs";
+import { importPdf, mananPositionedPagesToOrder, spreadsheetRowsToOrder } from "../app/fileImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
 
 async function render() {
@@ -24,7 +24,8 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
   assert.match(html, /견적정리/);
   assert.match(html, /주문내역을 가져오는 방법을 선택하세요/);
   assert.match(html, /주문 화면 복사·붙이기/);
-  assert.match(html, /문서·사진/);
+  assert.match(html, /PDF 문서/);
+  assert.match(html, /종이 견적서·영수증/);
   assert.match(html, /품목 자동 작성/);
   assert.match(html, /아직 불러온 품목이 없어요/);
   assert.match(html, /정확하게 가져오는 권장 순서/);
@@ -61,7 +62,7 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   await access(new URL("../public/og.png", import.meta.url));
 });
 
-test("스텝 1을 주문 화면 붙여넣기와 문서·사진 탭으로 구분하고 도우미를 보조 경로로 둔다", async () => {
+test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으로 구분하고 도우미를 보조 경로로 둔다", async () => {
   const [dialog, review, manifestText, extractor, bridge] = await Promise.all([
     readFile(new URL("../app/ImportDialog.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/ReviewApp.tsx", import.meta.url), "utf8"),
@@ -77,15 +78,19 @@ test("스텝 1을 주문 화면 붙여넣기와 문서·사진 탭으로 구분�
   assert.match(review, /role="tablist" aria-label="주문내역 가져오기 방법"/);
   assert.match(review, /먼저, 주문 화면 열기/);
   assert.ok(review.indexOf("shared-shopping-links") < review.indexOf("quick-start-tabs"));
-  assert.match(review, /문서·사진/);
+  assert.match(review, /PDF 문서/);
+  assert.match(review, /id="paper-method-tab"/);
+  assert.match(review, /종이 견적서·영수증/);
+  assert.match(review, /문자 인식\(OCR\) PDF/);
+  assert.match(review, /만든 PDF 업로드하기/);
   assert.match(review, /만안문구처럼 주문 화면을 복사할 수 없을 때/);
   assert.match(review, /주문 화면을 PDF로 저장하는 방법/);
   assert.match(review, /Microsoft Print to PDF/);
   assert.match(review, /전체 페이지 저장 후 업로드/);
   assert.match(review, /importQuickFile/);
   assert.match(review, /importPdf\(file/);
-  assert.match(review, /importExcel\(file/);
-  assert.match(review, /importImage\(file/);
+  assert.doesNotMatch(review, /importExcel\(file|importImage\(file/);
+  assert.match(review, /accept="\.pdf,application\/pdf"/);
   assert.match(review, /parseOrderText\(pasteText/);
   assert.match(review, /품목 자동 작성/);
   assert.match(review, /클립보드에서 붙여넣기/);
@@ -100,11 +105,14 @@ test("스텝 1을 주문 화면 붙여넣기와 문서·사진 탭으로 구분�
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
   assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 · 11번가 자동 구분/);
   assert.match(dialog, /정가·할인율·쿠폰·적립금·판매자·배송상태/);
-  assert.match(dialog, /PDF·엑셀 견적서·장바구니 캡처/);
+  assert.match(dialog, /주문내역 PDF 선택/);
+  assert.match(dialog, /종이 견적서·영수증/);
+  assert.match(dialog, /만든 PDF 선택하기/);
   assert.match(dialog, /chrome:\/\/extensions/);
   assert.match(dialog, /edge:\/\/extensions/);
   assert.match(dialog, /압축해제된 확장 프로그램 로드/);
-  assert.match(dialog, /\.pdf,\.xlsx,\.xls,\.png,\.jpg/);
+  assert.match(dialog, /accept="\.pdf,application\/pdf"/);
+  assert.doesNotMatch(dialog, /importExcel\(file|importImage\(file|accept="[^"]*\.png/);
   assert.doesNotMatch(dialog, /원본 주문 링크|원본 주소/);
   assert.match(dialog, /QUOTE_REVIEW_REQUEST_CAPTURE/);
   assert.deepEqual(manifest.permissions.sort(), ["activeTab", "scripting", "storage"]);
@@ -180,6 +188,35 @@ test("빈 PDF도 초기화 오류 없이 글자 없음 안내까지 처리한다
     if (originalToHex) Uint8Array.prototype.toHex = originalToHex;
     else delete Uint8Array.prototype.toHex;
   }
+});
+
+test("만안문구 PDF 표는 상품명·판매단가·수량·합계를 위치에 맞게 읽는다", () => {
+  const cell = (value, x, y) => ({ value, x, y });
+  const page = [
+    cell("만안문구센터", 300, 800), cell("제품명", 286, 700), cell("판매단가", 456, 700), cell("수량", 507, 700), cell("합계", 552, 700),
+      cell("바닥라인테이프/", 156, 660), cell("50mm", 203, 660), cell("/", 224, 660), cell("33m", 228, 660), cell("6,800원", 456, 660), cell("10", 505, 655.5), cell("롤", 515, 655.5), cell("68,000원", 544, 660), cell("색상", 156, 648.5), cell(":", 170, 648.5), cell("검정", 176, 648.5),
+      cell("1,300원", 456, 600), cell("투명테이프A급/", 156, 594), cell("48*50m", 201, 594), cell("1", 507, 595.5), cell("개", 513, 595.5), cell("1,300원", 546, 600),
+      cell("900원", 459, 540), cell("열쇠고리만들기/", 156, 534), cell("전통탈", 203, 534), cell("6", 507, 535.5), cell("개", 513, 535.5), cell("5,400원", 546, 540),
+      cell("머메이드지/", 156, 480), cell("A4(10매)", 190, 480), cell("3,200원", 456, 480), cell("2", 507, 475.5), cell("속", 513, 475.5), cell("6,400원", 546, 480), cell("색상", 156, 468.5), cell(":", 170, 468.5), cell("W59", 176, 468.5),
+      cell("머메이드지/", 156, 420), cell("A4(10매)", 190, 420), cell("3,200원", 456, 420), cell("2", 507, 415.5), cell("속", 513, 415.5), cell("6,400원", 546, 420), cell("색상", 156, 408.5), cell(":", 170, 408.5), cell("W26", 176, 408.5),
+      cell("800원", 459, 360), cell("야광스마일팔찌만들기", 156, 354), cell("179", 503, 355.5), cell("개", 517, 355.5), cell("143,200", 542, 360),
+      cell("800원", 459, 300), cell("네임펜", 156, 294), cell("F/", 176, 294), cell("검정", 183, 294), cell("22", 502, 295.5), cell("자루", 512, 295.5), cell("17,600원", 544, 300),
+      cell("구입총액", 477, 250), cell(":", 504, 250), cell("248,300원", 508, 250), cell("https://www.mananmungu.co.kr/", 10, 20),
+  ];
+
+  const order = mananPositionedPagesToOrder([page]);
+  assert.ok(order);
+  assert.equal(order.mall, "만안문구센터");
+  assert.equal(order.paidTotal, 248300);
+  assert.deepEqual(order.items.map((item) => item.내용), [
+    "바닥라인테이프/ 50mm / 33m", "투명테이프A급/ 48*50m", "열쇠고리만들기/ 전통탈",
+    "머메이드지/ A4(10매)", "머메이드지/ A4(10매)", "야광스마일팔찌만들기", "네임펜 F/ 검정",
+  ]);
+  assert.deepEqual(order.items.map((item) => item.규격), ["검정", "", "", "W59", "W26", "", ""]);
+  assert.deepEqual(order.items.map((item) => item.단위), ["롤", "개", "개", "속", "속", "개", "자루"]);
+  assert.deepEqual(order.items.map((item) => item.수량), [10, 1, 6, 2, 2, 179, 22]);
+  assert.deepEqual(order.items.map((item) => item.단가), [6800, 1300, 900, 3200, 3200, 800, 800]);
+  assert.deepEqual(order.items.map((item) => item.금액), [68000, 1300, 5400, 6400, 6400, 143200, 17600]);
 });
 
 test("복사한 주문 화면을 6개 품목 필드와 안전 경고로 정규화한다", () => {
