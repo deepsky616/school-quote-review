@@ -181,6 +181,241 @@ export function mananPositionedPagesToOrder(positionedPages) {
   };
 }
 
+const normalizedPdfPages = (positionedPages) => positionedPages.map((pageCells) => pageCells
+  .map((cell) => ({ ...cell, value: cleanPdfCell(cell.value) }))
+  .filter((cell) => cell.value));
+
+const pdfDocumentText = (positionedPages) => normalizedPdfPages(positionedPages)
+  .flat()
+  .map((cell) => cell.value)
+  .join(" ");
+
+const cellsNearRow = (cells, y, tolerance = 3) => cells
+  .filter((cell) => Math.abs(cell.y - y) <= tolerance)
+  .sort((a, b) => a.x - b.x);
+
+const tidyPdfProductName = (value) => cleanPdfCell(value)
+  .replace(/\s+([),])/g, "$1")
+  .replace(/([(/])\s+/g, "$1")
+  .replace(/(\d)\s+(개입|박스|자루|권|매|세트|팩|롤|속|개)/g, "$1$2")
+  .replace(/\s+\S+\s*…$/u, "")
+  .replace(/복합\s+기/g, "복합기")
+  .trim();
+
+function positionedPdfOrder(mall, extractedBy, items, documentedTotal = 0) {
+  if (!items.length) return null;
+  const calculatedTotal = items.reduce((sum, item) => sum + item.금액, 0);
+  const paidTotal = documentedTotal || calculatedTotal;
+  return {
+    mall,
+    orderNo: "PDF 문서에서 가져옴",
+    capturedAt: new Date().toISOString(),
+    paidTotal,
+    _warnings: paidTotal === calculatedTotal ? [] : ["V07"],
+    _extractedBy: extractedBy,
+    items: items.slice(0, 120),
+  };
+}
+
+export function yes24PositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
+  if (!/예스24|YES24/i.test(documentText) || !/상품명.*정가.*수량.*할인금액.*합계/i.test(documentText)) return null;
+
+  const items = pages.flatMap((cells) => {
+    const titles = cells
+      .filter((cell) => cell.x >= 170 && cell.x < 410 && /^\[도서\]/.test(cell.value))
+      .sort((a, b) => b.y - a.y);
+    return titles.flatMap((titleCell, index) => {
+      const lowerY = titles[index + 1]?.y ?? titleCell.y - 65;
+      const region = cells.filter((cell) => cell.y <= titleCell.y + 2 && cell.y > lowerY);
+      const quantityCell = region
+        .filter((cell) => cell.x >= 465 && cell.x < 500 && /^\d{1,3}$/.test(cell.value))
+        .sort((a, b) => b.y - a.y)[0];
+      const discountedCell = region
+        .filter((cell) => cell.x >= 500 && cell.x < 540 && /\d[\d,]*\s*원/.test(cell.value) && pdfMoney(cell.value) > 0)
+        .sort((a, b) => b.y - a.y)[0];
+      const amountCell = region
+        .filter((cell) => cell.x >= 540 && /\d[\d,]*\s*원/.test(cell.value) && pdfMoney(cell.value) > 0)
+        .sort((a, b) => b.y - a.y)[0];
+      const quantity = Number(quantityCell?.value ?? 0);
+      const unitPrice = pdfMoney(discountedCell?.value);
+      const amount = pdfMoney(amountCell?.value);
+      const name = tidyPdfProductName(titleCell.value.replace(/^\[도서\]\s*/, ""));
+      if (!name || !quantity || !unitPrice || !amount) return [];
+      return [{
+        내용: name,
+        규격: "도서",
+        단위: "권",
+        수량: quantity,
+        단가: unitPrice,
+        금액: amount,
+        _rawName: `${titleCell.value} | ${quantity} | ${discountedCell.value} | ${amountCell.value}`,
+        _warnings: amount === quantity * unitPrice ? [] : ["V06"],
+        excluded: false,
+      }];
+    });
+  });
+  return positionedPdfOrder("YES24", "yes24-pdf-table", items);
+}
+
+export function gmarketPositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
+  if (!/G마켓|checkout\.gmarket\.co\.kr/i.test(documentText) || !/주문상품/.test(documentText)) return null;
+
+  const items = pages.flatMap((cells) => {
+    const quantityLabels = cells
+      .filter((cell) => cell.x >= 100 && cell.x < 155 && cell.value === "수량")
+      .sort((a, b) => b.y - a.y);
+    return quantityLabels.flatMap((quantityLabel, index) => {
+      const quantityRow = cellsNearRow(cells, quantityLabel.y);
+      const quantityCell = quantityRow.find((cell) => cell.x > quantityLabel.x && /^\d{1,3}$/.test(cell.value));
+      const nameAnchor = cells
+        .filter((cell) => cell.x >= 100 && cell.x < 400 && cell.y > quantityLabel.y && cell.y <= quantityLabel.y + 22)
+        .sort((a, b) => Math.abs(a.y - quantityLabel.y) - Math.abs(b.y - quantityLabel.y))[0];
+      if (!quantityCell || !nameAnchor) return [];
+      const name = tidyPdfProductName(cellsNearRow(cells, nameAnchor.y)
+        .filter((cell) => cell.x >= 100 && cell.x < 400)
+        .map((cell) => cell.value)
+        .join(" "));
+      const priceCell = cells
+        .filter((cell) => cell.x >= 315 && cell.x < 400 && cell.y < quantityLabel.y && quantityLabel.y - cell.y <= 42 && pdfMoney(cell.value) > 0)
+        .sort((a, b) => a.y - b.y)[0];
+      const quantity = Number(quantityCell.value);
+      const unitPrice = pdfMoney(priceCell?.value);
+      if (!name || !quantity || !unitPrice) return [];
+      const product = {
+        내용: name,
+        규격: "",
+        단위: "개",
+        수량: quantity,
+        단가: unitPrice,
+        금액: quantity * unitPrice,
+        _rawName: `${name} | 수량 ${quantity}개 | ${priceCell.value}`,
+        _warnings: [],
+        excluded: false,
+      };
+
+      const lowerY = quantityLabels[index + 1]?.y ? quantityLabels[index + 1].y + 20 : quantityLabel.y - 90;
+      const shippingRows = [...new Set(cells
+        .filter((cell) => cell.y < quantityLabel.y && cell.y > lowerY && /배송비|무료배송|구매시/.test(cell.value))
+        .map((cell) => cell.y))];
+      const shippingAmount = shippingRows.reduce((found, rowY) => {
+        const outcomes = cellsNearRow(cells, rowY)
+          .flatMap((cell) => {
+            if (/무료배송/.test(cell.value)) return [{ x: cell.x, amount: 0 }];
+            const amount = cell.x >= 320 ? pdfMoney(cell.value) : 0;
+            return amount > 0 && amount <= 10000 ? [{ x: cell.x, amount }] : [];
+          })
+          .sort((a, b) => a.x - b.x);
+        return outcomes.at(-1)?.amount ?? found;
+      }, 0);
+      return shippingAmount > 0 ? [product, {
+        내용: "배송비", 규격: "", 단위: "건", 수량: 1, 단가: shippingAmount, 금액: shippingAmount,
+        _rawName: `배송비 ${shippingAmount}원`, _warnings: [], excluded: false,
+      }] : [product];
+    });
+  });
+  return positionedPdfOrder("G마켓", "gmarket-pdf-cards", items);
+}
+
+export function elevenStreetPositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
+  if (!/11번가|buy\.11st\.co\.kr/i.test(documentText) || !/주문상품/.test(documentText)) return null;
+
+  const items = pages.flatMap((cells) => {
+    if (!cells.some((cell) => cell.value === "주문상품")) return [];
+    const quantityCells = cells
+      .filter((cell) => cell.x >= 290 && cell.x < 315 && /^\d{1,3}$/.test(cell.value))
+      .filter((cell) => cellsNearRow(cells, cell.y).some((candidate) => candidate.x > cell.x && candidate.x < 330 && candidate.value === "개"))
+      .sort((a, b) => b.y - a.y);
+    return quantityCells.flatMap((quantityCell) => {
+      const name = tidyPdfProductName(cells
+        .filter((cell) => cell.x >= 100 && cell.x < 290 && cell.y <= quantityCell.y + 4 && cell.y >= quantityCell.y - 22)
+        .filter((cell) => !/^(?:상품쿠폰|적용중)$/.test(cell.value))
+        .filter((cell) => !cellsNearRow(cells, cell.y).some((candidate) => /도착/.test(candidate.value)))
+        .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x)
+        .map((cell) => cell.value)
+        .join(" "));
+      const priceCell = cells
+        .filter((cell) => cell.x >= 330 && cell.x < 410 && Math.abs(cell.y - quantityCell.y) <= 4 && pdfMoney(cell.value) > 0)
+        .sort((a, b) => a.x - b.x)[0];
+      const quantity = Number(quantityCell.value);
+      const unitPrice = pdfMoney(priceCell?.value);
+      if (!name || !quantity || !unitPrice) return [];
+
+      const optionLabel = cells
+        .filter((cell) => cell.x >= 100 && cell.x < 145 && cell.y < quantityCell.y && quantityCell.y - cell.y <= 45 && cell.value === "옵션")
+        .sort((a, b) => b.y - a.y)[0];
+      const spec = optionLabel ? tidyPdfProductName(cellsNearRow(cells, optionLabel.y)
+        .filter((cell) => cell.x > optionLabel.x && cell.x < 300)
+        .map((cell) => cell.value)
+        .join(" ")) : "";
+      const product = {
+        내용: name,
+        규격: spec,
+        단위: "개",
+        수량: quantity,
+        단가: unitPrice,
+        금액: quantity * unitPrice,
+        _rawName: `${name} | ${spec || "옵션 없음"} | ${quantity}개 | ${priceCell.value}`,
+        _warnings: [],
+        excluded: false,
+      };
+      const shippingAmount = cells
+        .filter((cell) => cell.x >= 415 && Math.abs(cell.y - quantityCell.y) <= 10 && pdfMoney(cell.value) > 0)
+        .map((cell) => pdfMoney(cell.value))
+        .find((amount) => amount <= 10000) ?? 0;
+      return shippingAmount > 0 ? [product, {
+        내용: "배송비", 규격: "", 단위: "건", 수량: 1, 단가: shippingAmount, 금액: shippingAmount,
+        _rawName: `선결제 배송비 ${shippingAmount}원`, _warnings: [], excluded: false,
+      }] : [product];
+    });
+  });
+  return positionedPdfOrder("11번가", "11st-pdf-table", items);
+}
+
+export function iscreamPositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
+  if (!/아이스크림몰|i-screammall\.co\.kr/i.test(documentText) || !/주문상품/.test(documentText)) return null;
+
+  const items = pages.flatMap((cells) => cells
+    .filter((cell) => cell.x >= 100 && cell.x < 175 && cell.value === "단일상품")
+    .sort((a, b) => b.y - a.y)
+    .flatMap((quantityLabel) => {
+      const quantityText = cellsNearRow(cells, quantityLabel.y).map((cell) => cell.value).join(" ");
+      const quantity = Number(quantityText.match(/\/\s*(\d{1,4})\s*개/)?.[1] ?? 0);
+      const name = tidyPdfProductName(cells
+        .filter((cell) => cell.x >= 100 && cell.x < 430 && cell.y > quantityLabel.y && cell.y <= quantityLabel.y + 90)
+        .filter((cell) => !/^(?:합배송 상품|단일상품)$/.test(cell.value))
+        .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x)
+        .map((cell) => cell.value)
+        .join(" "));
+      const amountCell = cells
+        .filter((cell) => cell.x >= 100 && cell.x < 200 && cell.y < quantityLabel.y && quantityLabel.y - cell.y <= 30 && pdfMoney(cell.value) > 0)
+        .sort((a, b) => b.y - a.y)[0];
+      const amount = pdfMoney(amountCell?.value);
+      const unitPrice = quantity ? Math.round(amount / quantity) : 0;
+      if (!name || !quantity || !amount || !unitPrice) return [];
+      return [{
+        내용: name,
+        규격: "단일상품",
+        단위: "개",
+        수량: quantity,
+        단가: unitPrice,
+        금액: amount,
+        _rawName: `${name} | ${quantityText} | ${amountCell.value}`,
+        _warnings: amount === quantity * unitPrice ? [] : ["V06"],
+        excluded: false,
+      }];
+    }));
+  const calculatedTotal = items.reduce((sum, item) => sum + item.금액, 0);
+  return positionedPdfOrder("아이스크림몰", "iscream-pdf-cards", items, calculatedTotal);
+}
+
 export async function importPdf(file, onProgress = (progress, label) => { void progress; void label; }) {
   onProgress(0.08, "PDF 글자를 읽고 있어요…");
   const pdfjs = await import("pdfjs-dist");
@@ -212,8 +447,16 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
 
   if (!lines.length) throw new Error("[V-P02] 글자가 없는 스캔 PDF입니다. 문자 인식(OCR)을 켜고 PDF로 다시 저장해 주세요.");
   onProgress(0.9, "품목과 금액을 구분하고 있어요…");
-  const mananOrder = mananPositionedPagesToOrder(positionedPages);
-  if (mananOrder) return mananOrder;
+  for (const parser of [
+    mananPositionedPagesToOrder,
+    yes24PositionedPagesToOrder,
+    gmarketPositionedPagesToOrder,
+    elevenStreetPositionedPagesToOrder,
+    iscreamPositionedPagesToOrder,
+  ]) {
+    const positionedOrder = parser(positionedPages);
+    if (positionedOrder) return positionedOrder;
+  }
   const order = parseOrderText(lines.join("\n"));
   order._extractedBy = "pdf-text";
   return order;

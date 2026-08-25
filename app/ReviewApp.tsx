@@ -410,6 +410,7 @@ export default function ReviewApp() {
             <div className="shopping-order-list">
               {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
             </div>
+            <p className="supported-malls-note"><strong>정확도 안내</strong> 자동 품목 구분은 위에 표시된 쇼핑몰 주문 화면을 기준으로 최적화되어 있습니다. 다른 쇼핑몰은 값이 빠지거나 잘못 연결될 수 있으므로 결과를 확인하고 ‘품목 추가’로 보완해 주세요.</p>
             <p>바로가기는 주문 화면을 열기만 하며 자동 수집하지 않습니다. 화면이 열리면 복사가 되는 경우 1번, 안 되는 경우 2번을 선택하세요. 종이 자료는 3번에서 스캔 방법을 확인할 수 있습니다.</p>
           </nav>
           <div className="quick-start-tabs" role="tablist" aria-label="주문내역 가져오기 방법">
@@ -437,6 +438,10 @@ export default function ReviewApp() {
           ) : quickStartMode === "file" ? (
             <div className="quick-start-panel quick-file-panel" id="file-method-panel" role="tabpanel" aria-labelledby="file-method-tab">
               <div className="quick-file-guidance"><span aria-hidden="true">!</span><div><strong>만안문구처럼 주문 화면을 복사할 수 없을 때 사용하세요</strong><p>상품명·판매단가·수량·합계가 모두 보이는 주문 화면을 PDF로 저장해 올려 주세요.</p></div></div>
+              <div className="import-method-comparison" aria-label="복사 붙여넣기와 PDF 방법 비교">
+                <section><span>기본 방법</span><strong>복사·붙여넣기</strong><p>상품 카드의 읽는 순서가 유지되어 가장 빠르고 정확합니다.</p></section>
+                <section><span>복사가 안 될 때</span><strong>주문 화면 PDF</strong><p>YES24·G마켓·아이스크림몰·11번가·만안문구센터 예시 구조를 전용 규칙으로 읽습니다.</p></section>
+              </div>
               <div className="pdf-save-guide" aria-labelledby="pdf-save-title">
                 <div className="pdf-save-heading"><div><span>가장 정확한 방법</span><h3 id="pdf-save-title">주문 화면을 PDF로 저장하는 방법</h3></div><em>Windows · Chrome · Edge</em></div>
                 <ol className="pdf-save-steps">

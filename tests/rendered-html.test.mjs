@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-import { importPdf, mananPositionedPagesToOrder, spreadsheetRowsToOrder } from "../app/fileImport.mjs";
+import {
+  elevenStreetPositionedPagesToOrder,
+  gmarketPositionedPagesToOrder,
+  importPdf,
+  iscreamPositionedPagesToOrder,
+  mananPositionedPagesToOrder,
+  spreadsheetRowsToOrder,
+  yes24PositionedPagesToOrder,
+} from "../app/fileImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
 
 async function render() {
@@ -112,6 +120,10 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /https:\/\/www\.11st\.co\.kr\//);
   assert.match(review, /https:\/\/www\.mananmungu\.co\.kr\/mall\/index\.php/);
   assert.match(review, /장바구니·주문내역 PDF/);
+  assert.match(review, /자동 품목 구분은 위에 표시된 쇼핑몰 주문 화면을 기준으로 최적화/);
+  assert.match(review, /다른 쇼핑몰은 값이 빠지거나 잘못 연결될 수 있으므로/);
+  assert.match(review, /복사 붙여넣기와 PDF 방법 비교/);
+  assert.match(review, /YES24·G마켓·아이스크림몰·11번가·만안문구센터 예시 구조/);
   assert.match(review, /자동 수집하지 않습니다/);
   assert.doesNotMatch(review, /상품 링크를 한 줄에 하나씩|상품 초안 만들기|현재 화면 보내기|getDisplayMedia/);
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
@@ -235,6 +247,54 @@ test("만안문구 PDF 표는 상품명·판매단가·수량·합계를 위치�
   assert.deepEqual(order.items.map((item) => item.수량), [10, 1, 6, 2, 2, 179, 22]);
   assert.deepEqual(order.items.map((item) => item.단가), [6800, 1300, 900, 3200, 3200, 800, 800]);
   assert.deepEqual(order.items.map((item) => item.금액), [68000, 1300, 5400, 6400, 6400, 143200, 17600]);
+});
+
+test("쇼핑몰별 주문 화면 PDF는 좌표 구조에 맞춰 상품명·할인가·배송비를 읽는다", () => {
+  const cell = (value, x, y) => ({ value, x, y });
+
+  const yes24 = yes24PositionedPagesToOrder([[
+    cell("예스24", 350, 800), cell("상품명", 260, 700), cell("정가", 420, 700), cell("수량", 475, 700), cell("할인금액", 510, 700), cell("합계", 550, 700),
+    cell("[도서] 완다는 별의 소리를 들어요", 192, 650), cell("15,750원", 509, 642), cell("17,500원", 419, 632), cell("2", 479, 632), cell("31,500원", 544, 632),
+  ]]);
+  assert.ok(yes24);
+  assert.equal(yes24._extractedBy, "yes24-pdf-table");
+  assert.deepEqual(yes24.items.map((item) => [item.내용, item.단위, item.수량, item.단가, item.금액]), [
+    ["완다는 별의 소리를 들어요", "권", 2, 15750, 31500],
+  ]);
+
+  const gmarket = gmarketPositionedPagesToOrder([[
+    cell("G마켓", 320, 800), cell("주문상품", 60, 700),
+    cell("오리온", 119, 650), cell("초코파이", 150, 650), cell("48P 1872g(1박스)", 190, 650), cell("수량", 119, 638), cell("1", 138, 638), cell("개", 142, 638), cell("18,600", 340, 626), cell("14,880", 331, 615), cell("무료배송", 346, 590),
+    cell("글라스메이트", 119, 540), cell("색연필 적 12자루 지구화학", 165, 540), cell("수량", 119, 528), cell("1", 138, 528), cell("개", 142, 528), cell("2,890", 336, 511), cell("배송비", 307, 480), cell("무료", 329, 480), cell("3,000", 348, 480), cell("원", 365, 480),
+  ]]);
+  assert.ok(gmarket);
+  assert.equal(gmarket._extractedBy, "gmarket-pdf-cards");
+  assert.deepEqual(gmarket.items.map((item) => [item.내용, item.규격, item.단가]), [
+    ["오리온 초코파이 48P 1872g(1박스)", "", 14880],
+    ["글라스메이트 색연필 적 12자루 지구화학", "", 2890],
+    ["배송비", "", 3000],
+  ]);
+
+  const elevenStreet = elevenStreetPositionedPagesToOrder([[
+    cell("11번가", 350, 800), cell("주문상품", 55, 700), cell("상품쿠폰", 112, 650), cell("적용중", 136, 650), cell("1", 304, 650), cell("개", 308, 650), cell("4,790", 354, 650), cell("3,000", 423, 650),
+    cell("라팔라", 109, 632), cell("트리거 엑스 미노우웜 6인치 광어 다운샷", 134, 632), cell("옵션", 109, 615), cell("핑크 펄 UV(PKPU)", 126, 615),
+  ]]);
+  assert.ok(elevenStreet);
+  assert.equal(elevenStreet._extractedBy, "11st-pdf-table");
+  assert.deepEqual(elevenStreet.items.map((item) => [item.내용, item.규격, item.단가]), [
+    ["라팔라 트리거 엑스 미노우웜 6인치 광어 다운샷", "핑크 펄 UV(PKPU)", 4790],
+    ["배송비", "", 3000],
+  ]);
+
+  const iscream = iscreamPositionedPagesToOrder([[
+    cell("아이스크림몰", 340, 800), cell("주문상품", 43, 760), cell("슈링클스", 115, 700), cell("클래스룸 팩 50장입_반투명(마술종이DIY)", 115, 682), cell("합배송 상품", 130, 665), cell("단일상품", 115, 646), cell("/ 2개", 151, 646), cell("60,000", 115, 625), cell("원", 155, 625),
+  ]]);
+  assert.ok(iscream);
+  assert.equal(iscream._extractedBy, "iscream-pdf-cards");
+  assert.deepEqual(iscream.items.map((item) => [item.내용, item.수량, item.단가, item.금액]), [
+    ["슈링클스 클래스룸 팩 50장입_반투명(마술종이DIY)", 2, 30000, 60000],
+  ]);
+  assert.deepEqual(iscream._warnings, []);
 });
 
 test("복사한 주문 화면을 6개 품목 필드와 안전 경고로 정규화한다", () => {
