@@ -46,6 +46,7 @@ const shoppingOrderLinks = [
   { name: "쿠팡", href: "https://mc.coupang.com/ssr/desktop/order/list", hint: "주문목록" },
   { name: "G마켓", href: "https://myg.gmarket.co.kr/", hint: "나의 쇼핑정보" },
   { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "마이페이지" },
+  { name: "11번가", href: "https://www.11st.co.kr/", hint: "주문·배송조회" },
 ];
 
 const warningText: Record<string, string> = {
@@ -356,7 +357,7 @@ export default function ReviewApp() {
 
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
-          <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">주문 화면을 복사해 그대로 붙여넣으세요</h2><p>아이스크림몰·쿠팡·G마켓·YES24 주문 형식을 자동 구분하고, 여러 가격 중 최종 할인가를 사용합니다.</p></div>
+          <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">주문 화면을 복사해 그대로 붙여넣으세요</h2><p>아이스크림몰·쿠팡·G마켓·YES24·11번가 주문 형식을 자동 구분하고, 여러 가격 중 최종 할인가를 사용합니다.</p></div>
           <nav className="shopping-order-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
             <div className="shopping-order-guide"><strong>주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 주문내역에서 Ctrl+A → Ctrl+C 하세요.</span></div>
             <div className="shopping-order-list">

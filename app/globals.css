@@ -87,7 +87,7 @@ button { cursor: pointer; }
 .shopping-order-guide { display: flex; align-items: baseline; gap: 10px; margin-bottom: 11px; }
 .shopping-order-guide strong { color: #2f5646; font-size: 12px; }
 .shopping-order-guide span { color: #78867f; font-size: 10px; }
-.shopping-order-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.shopping-order-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .shopping-order-list a { min-width: 0; display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 10px 11px; border: 1px solid #d3ddd6; border-radius: 10px; background: #fff; color: var(--ink); text-decoration: none; transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
 .shopping-order-list a:hover { border-color: #8eb6a2; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(23,48,39,.07); }
 .shopping-order-list b { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }

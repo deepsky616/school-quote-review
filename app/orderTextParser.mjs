@@ -2,8 +2,8 @@ const TOTAL_LABEL = /(총\s*결제|최종\s*결제|결제\s*(?:예정\s*)?금액
 const HEADER_LABEL = /^(상품|상품명|품명|내용|옵션|규격|수량|단가|금액|결제금액|주문금액)$/i;
 const CONTROL_LABEL = /^(장바구니|주문내역|주문상세|배송조회|리뷰쓰기|교환|반품|취소|문의|구매확정|다시 구매|닫기|확인)$/i;
 const FOREIGN_CURRENCY = /(?:US?D|JPY|EUR|CNY|[$€¥])/i;
-const MARKDOWN_LINK = /^\s*(?:-\s*)?\[([^\]]+)\]\((https?:\/\/[^)]+)\)\s*$/i;
-const SITE_HEADER = /^(?:아이스크림몰|쿠팡|G마켓|YES24)(?:\s|$).*https?:\/\//i;
+const MARKDOWN_LINK = /^\s*(?:[-*]\s*)?\[([^\]]+)\]\((https?:\/\/[^)]+)\)\s*$/i;
+const SITE_HEADER = /^(?:아이스크림몰|쿠팡|G마켓|YES24|11번가)(?:\s|$).*https?:\/\//i;
 const OPTION_LINE = /^(?:선택|색상|옵션)\s*[:：]?/i;
 const QUANTITY_UNITS = "개|세트|팩|박스|권|매|병|봉|묶음|식";
 
@@ -19,6 +19,7 @@ const moneyValues = (line) => {
 
 const cleanScrapedLine = (value) => String(value ?? "")
   .replace(/(?:&#x0*20;|&#0*32;|&nbsp;)/gi, " ")
+  .replace(/(?:&#x0*C6D0;|&#0*50896;)/gi, "원")
   .replace(/\*\*/g, "")
   .replace(/^\\\s*$/, "")
   .replace(/\\_/g, "_")
@@ -123,6 +124,57 @@ function scrapedProductItems(text) {
     const shippingItem = shippingItemFromLine(shippingLine ?? "", block.sourceUrl);
     return shippingItem ? [item, shippingItem] : [item];
   });
+}
+
+const cleanElevenStreetLine = (value) => cleanScrapedLine(value)
+  .replace(/^[-*]\s*/, "")
+  .replace(/\*+/g, "")
+  .trim();
+
+function elevenStreetProductItems(text) {
+  if (!/11st\.co\.kr/i.test(String(text ?? ""))) return [];
+  return scrapedProductBlocks(text)
+    .filter((block) => /11st\.co\.kr/i.test(block.sourceUrl))
+    .flatMap((block) => {
+      const lines = block.lines.map(cleanElevenStreetLine).filter(Boolean);
+      const quantityLine = lines.find((line) => new RegExp(`^\\d{1,4}\\s*(?:${QUANTITY_UNITS})$`, "i").test(line));
+      const quantityMatch = quantityLine?.match(new RegExp(`^(\\d{1,4})\\s*(${QUANTITY_UNITS})$`, "i"));
+      const discountIndex = lines.findIndex((line) => /^할인\s*모음가/i.test(line));
+      const discountPrice = discountIndex >= 0
+        ? lines.slice(discountIndex, discountIndex + 3).flatMap(moneyValues).find((value) => value > 0) ?? 0
+        : 0;
+      if (!quantityMatch || !discountPrice) return [];
+
+      const quantity = Math.max(1, toNumber(quantityMatch[1]));
+      const optionLine = lines.find((line) => /^옵션\s*[:：]?/i.test(line));
+      const spec = optionLine?.replace(/^옵션\s*[:：]?\s*/i, "").trim() ?? "";
+      const item = makeItem({
+        name: block.name,
+        spec,
+        unit: quantityMatch[2] || "개",
+        quantity,
+        amount: discountPrice * quantity,
+        sourceUrl: block.sourceUrl,
+        raw: `${block.name} ${lines.join(" ")}`,
+      });
+
+      if (lines.some((line) => /무료\s*배송/i.test(line))) return [item];
+      const prepaidIndex = lines.findIndex((line) => /^선결제/i.test(line));
+      const shippingPrice = prepaidIndex >= 0
+        ? lines.slice(prepaidIndex, prepaidIndex + 3).flatMap(moneyValues).find((value) => value > 0) ?? 0
+        : 0;
+      if (!shippingPrice) return [item];
+      const shipping = makeItem({
+        name: "배송비",
+        spec: "",
+        unit: "건",
+        quantity: 1,
+        amount: shippingPrice,
+        sourceUrl: block.sourceUrl,
+        raw: lines.slice(prepaidIndex, prepaidIndex + 3).join(" "),
+      });
+      return [item, shipping];
+    });
 }
 
 function catalogProductItems(text) {
@@ -531,7 +583,10 @@ export function parseOrderText(text, options = {}) {
   const coupang = coupangProductItems(normalized);
   const gmarketPlain = scraped.length ? [] : gmarketPlainProductItems(normalized);
   const yes24 = yes24ProductItems(normalized);
-  const specialized = [...scraped, ...catalog, ...coupang, ...gmarketPlain, ...yes24];
+  const elevenStreet = elevenStreetProductItems(normalized);
+  const specialized = elevenStreet.length
+    ? elevenStreet
+    : [...scraped, ...catalog, ...coupang, ...gmarketPlain, ...yes24];
   const structured = lines.map(structuredItem).filter(Boolean);
   const candidates = specialized.length
     ? specialized
@@ -564,7 +619,7 @@ export function parseOrderText(text, options = {}) {
   const detectedSourceUrl = options.sourceUrl || specialized.find((item) => item.sourceUrl)?.sourceUrl || (detectedTextUrl ? cleanScrapedUrl(detectedTextUrl) : undefined);
 
   return {
-    mall: yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
+    mall: elevenStreet.length ? "11번가" : yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
     sourceUrl: detectedSourceUrl || undefined,
     orderNo: findOrderNo(lines),
     capturedAt: new Date().toISOString(),

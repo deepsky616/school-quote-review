@@ -78,10 +78,11 @@ test("주문 화면 붙여넣기를 기본으로 두고 문서·사진과 도우
   assert.match(review, /https:\/\/mc\.coupang\.com\/ssr\/desktop\/order\/list/);
   assert.match(review, /https:\/\/myg\.gmarket\.co\.kr\//);
   assert.match(review, /https:\/\/www\.yes24\.com\/Member\/FTMypageMain\.aspx/);
+  assert.match(review, /https:\/\/www\.11st\.co\.kr\//);
   assert.match(review, /자동 수집하지 않습니다/);
   assert.doesNotMatch(review, /상품 링크를 한 줄에 하나씩|상품 초안 만들기|현재 화면 보내기|getDisplayMedia/);
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
-  assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 자동 구분/);
+  assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 · 11번가 자동 구분/);
   assert.match(dialog, /정가·할인율·쿠폰·적립금·판매자·배송상태/);
   assert.match(dialog, /PDF·엑셀 견적서·장바구니 캡처/);
   assert.match(dialog, /\.pdf,\.xlsx,\.xls,\.png,\.jpg/);
@@ -439,6 +440,63 @@ test("같은 상품명이 연속으로 반복되면 내용에는 한 번만 작�
   ]);
   assert.deepEqual(order.items.map((item) => item.단가), [14880, 2890, 3000]);
   assert.equal(order.items.at(-1).규격, "");
+});
+
+test("11번가 주문은 할인모음가·옵션·선결제 배송비를 품목에 맞게 읽는다", () => {
+  const order = parseOrderText([
+    "11번가: [https://www.11st.co.kr/](https://www.11st.co.kr/)",
+    "### 스토어명 앵글러피싱",
+    "-",
+    "* 상품쿠폰 적용중",
+    "* [라팔라 트리거 엑스 미노우웜 6인치 광어 다운샷](https://www.11st.co.kr/products/9518750887?xzone=order^list\\&xfrom=order^list\\&stockNo=46912457660)",
+    "- 옵션핑크 펄 UV(PKPU)",
+    "- 내일 8/26(수) 도착",
+    "도움말",
+    "1개",
+    "할인모음가",
+    "4,790&#xC6D0;",
+    "판매가",
+    "5,300원",
+    "선결제",
+    "3,000원",
+    "배송정보",
+    "배송비",
+    "도움말",
+    "### 스토어명 삼성공식파트너_피트존",
+    "* [삼성전자 SL-C563W 토너포함 컬러레이저복합기 무선 프린터기 가정용 스캐너 복사기 인쇄기](https://www.11st.co.kr/products/1539505037?xzone=order^list\\&xfrom=order^list\\&stockNo=6258733859)",
+    "- 내일 8/26(수) 도착",
+    "도움말",
+    "1개",
+    "할인모음가",
+    "367,000&#xC6D0;",
+    "배송정보",
+    "무료배송",
+    "도움말",
+    "### 스토어명 레고공식스토어",
+    "* [레고 디즈니 프린세스 43291 벨과 티아나의 성](https://www.11st.co.kr/products/8978118228?xzone=order^list\\&xfrom=order^list\\&stockNo=43967141426)",
+    "- 모레 8/27(목) 도착",
+    "도움말",
+    "1개",
+    "할인모음가",
+    "54,900&#xC6D0;",
+    "배송정보",
+    "무료배송",
+    "도움말",
+  ].join("\n"));
+
+  assert.equal(order.mall, "11번가");
+  assert.deepEqual(order.items.map((item) => item.내용), [
+    "라팔라 트리거 엑스 미노우웜 6인치 광어 다운샷",
+    "배송비",
+    "삼성전자 SL-C563W 토너포함 컬러레이저복합기 무선 프린터기 가정용 스캐너 복사기 인쇄기",
+    "레고 디즈니 프린세스 43291 벨과 티아나의 성",
+  ]);
+  assert.deepEqual(order.items.map((item) => item.규격), ["핑크 펄 UV(PKPU)", "", "", ""]);
+  assert.deepEqual(order.items.map((item) => item.단위), ["개", "건", "개", "개"]);
+  assert.deepEqual(order.items.map((item) => item.수량), [1, 1, 1, 1]);
+  assert.deepEqual(order.items.map((item) => item.단가), [4790, 3000, 367000, 54900]);
+  assert.equal(order.items.some((item) => item.단가 === 5300), false);
+  assert.equal(order.sourceUrl, "https://www.11st.co.kr/products/9518750887?xzone=order^list&xfrom=order^list&stockNo=46912457660");
 });
 
 test("YES24 표는 정가와 포인트가 아닌 할인금액을 단가로, 합계를 금액으로 읽는다", () => {
