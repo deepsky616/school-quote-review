@@ -414,6 +414,13 @@ export default function ReviewApp() {
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
           <div className="quick-start-copy"><span>STEP 1 · 자료 가져오기</span><h2 id="quick-start-title">주문내역을 가져오는 방법을 선택하세요</h2><p>복사되는 쇼핑몰은 주문 화면을 붙여넣고, 복사가 막힌 쇼핑몰은 PDF·엑셀·화면 캡처를 올리면 됩니다.</p></div>
+          <nav className="shopping-order-links shared-shopping-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
+            <div className="shopping-order-guide"><strong>먼저, 주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 상품명·수량·가격이 보이는 주문상세 화면을 여세요.</span></div>
+            <div className="shopping-order-list">
+              {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
+            </div>
+            <p>바로가기는 주문 화면을 열기만 하며 자동 수집하지 않습니다. 화면이 열리면 복사가 되는 경우 1번, 안 되는 경우 2번을 선택하세요.</p>
+          </nav>
           <div className="quick-start-tabs" role="tablist" aria-label="주문내역 가져오기 방법">
             <button id="paste-method-tab" className={quickStartMode === "paste" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "paste"} aria-controls="paste-method-panel" onClick={() => setQuickStartMode("paste")}>
               <span className="method-tab-index" aria-hidden="true">1</span><span><b>주문 화면 복사·붙이기</b><small>대부분의 쇼핑몰 · 가장 빠른 방법</small></span><em>추천</em>
@@ -425,13 +432,6 @@ export default function ReviewApp() {
 
           {quickStartMode === "paste" ? (
             <div className="quick-start-panel" id="paste-method-panel" role="tabpanel" aria-labelledby="paste-method-tab">
-              <nav className="shopping-order-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
-                <div className="shopping-order-guide"><strong>주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 주문내역에서 Ctrl+A → Ctrl+C 하세요.</span></div>
-                <div className="shopping-order-list">
-                  {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
-                </div>
-                <p>바로가기는 주문 화면을 여는 용도이며 자동 수집하지 않습니다. 복사한 내용을 아래에 붙여넣어 주세요.</p>
-              </nav>
               <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
                 <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
                 <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>

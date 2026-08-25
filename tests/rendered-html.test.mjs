@@ -75,6 +75,8 @@ test("스텝 1을 주문 화면 붙여넣기와 문서·사진 탭으로 구분�
   assert.match(review, /quickStartMode/);
   assert.match(review, /주문 화면 복사·붙이기/);
   assert.match(review, /role="tablist" aria-label="주문내역 가져오기 방법"/);
+  assert.match(review, /먼저, 주문 화면 열기/);
+  assert.ok(review.indexOf("shared-shopping-links") < review.indexOf("quick-start-tabs"));
   assert.match(review, /문서·사진/);
   assert.match(review, /만안문구처럼 주문 화면을 복사할 수 없을 때/);
   assert.match(review, /주문 화면을 PDF로 저장하는 방법/);
