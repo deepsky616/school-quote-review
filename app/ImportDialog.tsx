@@ -214,6 +214,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
           <button className={mode === "browser" ? "active" : ""} type="button" role="tab" aria-selected={mode === "browser"} onClick={() => setMode("browser")}>도우미</button>
           <button className={mode === "manual" ? "active" : ""} type="button" role="tab" aria-selected={mode === "manual"} onClick={() => setMode("manual")}>직접 입력</button>
         </div>
+        <input ref={fileRef} className="file-input" type="file" accept=".pdf,application/pdf" onChange={importFile} />
 
         {mode === "paste" && (
           <div className="import-panel" role="tabpanel">
@@ -235,7 +236,6 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
 
         {mode === "file" && (
           <div className="import-panel" role="tabpanel">
-            <input ref={fileRef} className="file-input" type="file" accept=".pdf,application/pdf" onChange={importFile} />
             <button className="drop-zone" type="button" onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
               <span className="drop-icon" aria-hidden="true">↑</span>
               <strong>주문내역 PDF 선택</strong>
@@ -270,7 +270,12 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
               <div className="paper-checklist"><strong>저장 후 확인</strong><span>상품명·단가·수량·합계가 선명함</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
               <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요.</p>
             </div>
-            <button className="dialog-primary paper-dialog-action" type="button" onClick={() => setMode("file")}>만든 PDF 선택하기 <span aria-hidden="true">→</span></button>
+            <button className="drop-zone paper-drop-zone" type="button" onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
+              <span className="drop-icon" aria-hidden="true">↑</span>
+              <strong>스캔한 견적서·영수증 PDF 선택</strong>
+              <small>여기를 누르거나 문자 인식이 포함된 PDF를 끌어다 놓으세요</small>
+            </button>
+            <p className="format-fallback">선택한 PDF는 바로 품목으로 정리되며, 수량·예상단가·예상금액을 검수할 수 있습니다.</p>
           </div>
         )}
 

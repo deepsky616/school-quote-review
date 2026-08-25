@@ -253,7 +253,7 @@ export default function ReviewApp() {
   const [pasteTotal, setPasteTotal] = useState("");
   const [pasteStatus, setPasteStatus] = useState("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다.");
   const [pasteKind, setPasteKind] = useState<"idle" | "success" | "error">("idle");
-  const [fileStatus, setFileStatus] = useState("브라우저 인쇄에서 저장한 주문내역 PDF를 올려 주세요.");
+  const [fileStatus, setFileStatus] = useState("주문 화면 PDF 또는 문자 인식이 포함된 스캔 PDF를 올려 주세요.");
   const [fileKind, setFileKind] = useState<"idle" | "working" | "success" | "error">("idle");
   const [selectedFileName, setSelectedFileName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -421,6 +421,7 @@ export default function ReviewApp() {
               <span className="method-tab-index" aria-hidden="true">3</span><span><b>종이 견적서·영수증</b><small>휴대폰·프린터/복합기 스캔 · 문자 인식 PDF</small></span><em>스캔</em>
             </button>
           </div>
+          <input ref={fileInputRef} className="file-input" type="file" accept=".pdf,application/pdf" onChange={chooseQuickFile} />
 
           {quickStartMode === "paste" ? (
             <div className="quick-start-panel" id="paste-method-panel" role="tabpanel" aria-labelledby="paste-method-tab">
@@ -443,7 +444,6 @@ export default function ReviewApp() {
                 </ol>
                 <p className="pdf-save-tip"><span aria-hidden="true">i</span> 인쇄 미리보기에서 모든 상품 행이 보이는지 확인한 뒤 저장하세요.</p>
               </div>
-              <input ref={fileInputRef} className="file-input" type="file" accept=".pdf,application/pdf" onChange={chooseQuickFile} />
               <button className="quick-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>
                 <span className="quick-file-icon" aria-hidden="true">↑</span>
                 <strong>{selectedFileName || "주문내역 PDF를 선택하세요"}</strong>
@@ -479,10 +479,16 @@ export default function ReviewApp() {
                 <div className="paper-checklist"><strong>업로드 전 확인</strong><span>제품명·판매단가·수량·합계가 선명함</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
                 <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기 화면에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요. 사진을 단순히 PDF로 바꾼 파일은 정확도가 낮습니다.</p>
               </div>
-              <button className="paper-upload-action" type="button" onClick={() => setQuickStartMode("file")}>만든 PDF 업로드하기 <span aria-hidden="true">→</span></button>
+              <button className="quick-file-zone paper-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>
+                <span className="quick-file-icon" aria-hidden="true">↑</span>
+                <strong>{selectedFileName || "스캔한 견적서·영수증 PDF를 선택하세요"}</strong>
+                <small>여기를 누르거나 PDF 파일을 끌어다 놓으세요 · 최대 25MB</small>
+                <span className="quick-file-formats"><b>PDF 전용</b><b>문자 인식 권장</b></span>
+              </button>
+              <div className={`link-status ${fileKind}`} aria-live="polite"><span aria-hidden="true" />{fileStatus}</div>
+              <div className="quick-file-priority"><span><b>1</b> 문서 스캔</span><i aria-hidden="true">→</i><span><b>2</b> PDF 저장</span><i aria-hidden="true">→</i><span><b>3</b> 여기서 업로드</span></div>
             </div>
           )}
-          <div className="quick-start-more"><span>도우미 또는 직접 입력이 필요하신가요?</span><button type="button" onClick={() => setImportOpen(true)}>다른 방법 보기</button></div>
         </section>
         {hasItems ? <>
         <div className="page-heading">

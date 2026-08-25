@@ -86,7 +86,10 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /자동급지대\(ADF\)/);
   assert.match(review, /해상도 <mark>300dpi<\/mark>/);
   assert.match(review, /검색 가능한 PDF/);
-  assert.match(review, /만든 PDF 업로드하기/);
+  assert.match(review, /스캔한 견적서·영수증 PDF를 선택하세요/);
+  assert.match(review, /문자 인식 권장/);
+  assert.equal((review.match(/onDrop=\{dropQuickFile\}/g) ?? []).length, 2);
+  assert.doesNotMatch(review, /도우미 또는 직접 입력이 필요하신가요\?|다른 방법 보기/);
   assert.match(review, /만안문구처럼 주문 화면을 복사할 수 없을 때/);
   assert.match(review, /주문 화면을 PDF로 저장하는 방법/);
   assert.match(review, /Microsoft Print to PDF/);
@@ -116,7 +119,9 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(dialog, /프린터·복합기 스캔/);
   assert.match(dialog, /PDF·300dpi 선택/);
   assert.match(dialog, /자동급지대\(ADF\)/);
-  assert.match(dialog, /만든 PDF 선택하기/);
+  assert.match(dialog, /스캔한 견적서·영수증 PDF 선택/);
+  assert.match(dialog, /선택한 PDF는 바로 품목으로 정리/);
+  assert.equal((dialog.match(/onDrop=\{dropFile\}/g) ?? []).length, 2);
   assert.match(dialog, /chrome:\/\/extensions/);
   assert.match(dialog, /edge:\/\/extensions/);
   assert.match(dialog, /압축해제된 확장 프로그램 로드/);
