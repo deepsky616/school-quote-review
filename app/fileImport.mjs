@@ -95,13 +95,16 @@ export async function importExcel(file) {
 export async function importPdf(file, onProgress = (progress, label) => { void progress; void label; }) {
   onProgress(0.08, "PDF 글자를 읽고 있어요…");
   const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdf.worker.min.mjs", document.baseURI).href;
-  const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pageBaseUrl = typeof globalThis.document?.baseURI === "string"
+    ? globalThis.document.baseURI
+    : import.meta.url;
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdf.worker.min.mjs", pageBaseUrl).href;
+  const pdfDocument = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const lines = [];
 
-  for (let pageNo = 1; pageNo <= Math.min(document.numPages, 20); pageNo += 1) {
-    onProgress(0.08 + (pageNo / document.numPages) * 0.72, `${pageNo}/${document.numPages}쪽을 읽고 있어요…`);
-    const page = await document.getPage(pageNo);
+  for (let pageNo = 1; pageNo <= Math.min(pdfDocument.numPages, 20); pageNo += 1) {
+    onProgress(0.08 + (pageNo / pdfDocument.numPages) * 0.72, `${pageNo}/${pdfDocument.numPages}쪽을 읽고 있어요…`);
+    const page = await pdfDocument.getPage(pageNo);
     const content = await page.getTextContent();
     const positioned = content.items
       .filter((item) => "str" in item && item.str.trim())

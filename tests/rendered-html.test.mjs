@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-import { spreadsheetRowsToOrder } from "../app/fileImport.mjs";
+import { importPdf, spreadsheetRowsToOrder } from "../app/fileImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
 
 async function render() {
@@ -129,6 +129,57 @@ test("GitHub Pages 정적 빌드와 배포 구성을 유지한다", async () => 
   assert.match(workflow, /actions\/upload-pages-artifact@v4/);
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.match(entry, /<ReviewApp \/>/);
+});
+
+test("PDF 불러오기는 브라우저 document와 PDF 문서 변수를 충돌시키지 않는다", async () => {
+  const source = await readFile(new URL("../app/fileImport.mjs", import.meta.url), "utf8");
+  assert.match(source, /globalThis\.document\?\.baseURI/);
+  assert.match(source, /const pdfDocument = await pdfjs\.getDocument/);
+  assert.doesNotMatch(source, /const document = await pdfjs\.getDocument/);
+});
+
+test("빈 PDF도 초기화 오류 없이 글자 없음 안내까지 처리한다", async () => {
+  const originalDomMatrix = globalThis.DOMMatrix;
+  const originalDocument = globalThis.document;
+  const originalToHex = Uint8Array.prototype.toHex;
+  globalThis.DOMMatrix = class DOMMatrix {};
+  globalThis.document = { baseURI: new URL("../public/", import.meta.url).href };
+  Uint8Array.prototype.toHex = function toHex() { return Buffer.from(this).toString("hex"); };
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>",
+    "<< /Length 0 >>\nstream\n\nendstream",
+  ];
+  let source = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(source));
+    source += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(source);
+  source += `xref\n0 5\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\n`;
+  source += `trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  const bytes = new TextEncoder().encode(source);
+  const file = {
+    name: "blank.pdf",
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  };
+
+  try {
+    await assert.rejects(() => importPdf(file), (error) => {
+      assert.match(error.message, /\[V-P02\] 글자가 없는 스캔 PDF/);
+      assert.doesNotMatch(error.message, /before initialization/);
+      return true;
+    });
+  } finally {
+    if (originalDomMatrix) globalThis.DOMMatrix = originalDomMatrix;
+    else delete globalThis.DOMMatrix;
+    if (originalDocument) globalThis.document = originalDocument;
+    else delete globalThis.document;
+    if (originalToHex) Uint8Array.prototype.toHex = originalToHex;
+    else delete Uint8Array.prototype.toHex;
+  }
 });
 
 test("복사한 주문 화면을 6개 품목 필드와 안전 경고로 정규화한다", () => {
