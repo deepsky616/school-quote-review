@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, DragEvent } from "react";
 import ImportDialog from "./ImportDialog.tsx";
+import { importExcel, importImage, importPdf } from "./fileImport.mjs";
 import { parseOrderText } from "./orderTextParser.mjs";
 
 type ReviewItem = {
@@ -245,10 +247,16 @@ export default function ReviewApp() {
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [message, setMessage] = useState("자동 저장됨");
   const [isImportOpen, setImportOpen] = useState(false);
+  const [quickStartMode, setQuickStartMode] = useState<"paste" | "file">("paste");
   const [pasteText, setPasteText] = useState("");
   const [pasteTotal, setPasteTotal] = useState("");
   const [pasteStatus, setPasteStatus] = useState("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다.");
   const [pasteKind, setPasteKind] = useState<"idle" | "success" | "error">("idle");
+  const [fileStatus, setFileStatus] = useState("PDF·엑셀 원본이 가장 정확하며, 화면 캡처는 글자가 크게 보이도록 올려 주세요.");
+  const [fileKind, setFileKind] = useState<"idle" | "working" | "success" | "error">("idle");
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const totals = useMemo(() => {
     const included = items.filter((item) => !item.excluded);
     const total = included.reduce((sum, item) => sum + item.수량 * item.단가, 0);
@@ -286,6 +294,10 @@ export default function ReviewApp() {
     }
   }, []);
 
+  useEffect(() => () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+  }, [imagePreview]);
+
   const importPastedOrder = () => {
     try {
       const order = parseOrderText(pasteText, { paidTotal: pasteTotal });
@@ -310,6 +322,50 @@ export default function ReviewApp() {
       setPasteKind("error");
       setPasteStatus("입력칸을 누르고 Ctrl+V로 붙여넣어 주세요.");
     }
+  };
+
+  const importQuickFile = async (file: File) => {
+    if (file.size > 25 * 1024 * 1024) {
+      setFileKind("error");
+      setFileStatus("파일은 25MB 이하로 올려 주세요.");
+      return;
+    }
+    setFileKind("working");
+    setSelectedFileName(file.name);
+    setFileStatus("파일을 이 브라우저 안에서 읽고 있어요…");
+    setImagePreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+    try {
+      const lower = file.name.toLowerCase();
+      let order: unknown;
+      if (lower.endsWith(".xlsx")) order = await importExcel(file);
+      else if (lower.endsWith(".xls")) throw new Error("구형 .xls는 지원하지 않습니다. Excel에서 .xlsx로 다시 저장해 주세요.");
+      else if (lower.endsWith(".pdf")) order = await importPdf(file, (progress: number, label: string) => {
+        setFileStatus(`${label} ${Math.round(progress * 100)}%`);
+      });
+      else if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(lower)) order = await importImage(file, (progress: number, label: string) => {
+        setFileStatus(`${label} ${Math.round(progress * 100)}%`);
+      });
+      else throw new Error("PDF, XLSX, PNG, JPG 또는 WEBP 파일을 올려 주세요.");
+      const error = applyOrder(order, file.name);
+      if (error) throw new Error(error);
+      setFileKind("success");
+      setFileStatus("품목을 정리했습니다. 아래 검수표에서 노란 표시만 확인해 주세요.");
+    } catch (error) {
+      setFileKind("error");
+      setFileStatus(error instanceof Error ? error.message : "파일을 읽지 못했습니다.");
+    }
+  };
+
+  const chooseQuickFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) await importQuickFile(file);
+    event.target.value = "";
+  };
+
+  const dropQuickFile = async (event: DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (file) await importQuickFile(file);
   };
 
   const saveReview = () => {
@@ -351,27 +407,63 @@ export default function ReviewApp() {
       {isImportOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={applyOrder} />}
       <header className="topbar">
         <a className="brand" href="#top" aria-label="견적정리 홈"><span className="brand-mark" aria-hidden="true">견</span><span>견적정리</span></a>
-        <div className="stepper" aria-label="진행 단계"><span className={`step ${hasItems ? "done" : "active"}`}><b>1</b> 주문 화면 붙여넣기</span><span className={`step ${hasItems ? "active" : ""}`}><b>2</b> 내용 확인·수정</span><span className="step"><b>3</b> 엑셀 다운로드</span><span className="step"><b>4</b> K-에듀파인 등록</span></div>
+        <div className="stepper" aria-label="진행 단계"><span className={`step ${hasItems ? "done" : "active"}`}><b>1</b> 주문내역 가져오기</span><span className={`step ${hasItems ? "active" : ""}`}><b>2</b> 내용 확인·수정</span><span className="step"><b>3</b> 엑셀 다운로드</span><span className="step"><b>4</b> K-에듀파인 등록</span></div>
         <button className="ghost-button" type="button" onClick={() => setImportOpen(true)}>주문내역 가져오기</button>
       </header>
 
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
-          <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">주문 화면을 복사해 그대로 붙여넣으세요</h2><p>아이스크림몰·쿠팡·G마켓·YES24·11번가 주문 형식을 자동 구분하고, 여러 가격 중 최종 할인가를 사용합니다.</p></div>
-          <nav className="shopping-order-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
-            <div className="shopping-order-guide"><strong>주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 주문내역에서 Ctrl+A → Ctrl+C 하세요.</span></div>
-            <div className="shopping-order-list">
-              {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
+          <div className="quick-start-copy"><span>STEP 1 · 자료 가져오기</span><h2 id="quick-start-title">주문내역을 가져오는 방법을 선택하세요</h2><p>복사되는 쇼핑몰은 주문 화면을 붙여넣고, 복사가 막힌 쇼핑몰은 PDF·엑셀·화면 캡처를 올리면 됩니다.</p></div>
+          <div className="quick-start-tabs" role="tablist" aria-label="주문내역 가져오기 방법">
+            <button id="paste-method-tab" className={quickStartMode === "paste" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "paste"} aria-controls="paste-method-panel" onClick={() => setQuickStartMode("paste")}>
+              <span className="method-tab-index" aria-hidden="true">1</span><span><b>주문 화면 복사·붙이기</b><small>대부분의 쇼핑몰 · 가장 빠른 방법</small></span><em>추천</em>
+            </button>
+            <button id="file-method-tab" className={quickStartMode === "file" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "file"} aria-controls="file-method-panel" onClick={() => setQuickStartMode("file")}>
+              <span className="method-tab-index" aria-hidden="true">2</span><span><b>문서·사진</b><small>복사가 안 되는 쇼핑몰 · PDF·캡처</small></span><em>대안</em>
+            </button>
+          </div>
+
+          {quickStartMode === "paste" ? (
+            <div className="quick-start-panel" id="paste-method-panel" role="tabpanel" aria-labelledby="paste-method-tab">
+              <nav className="shopping-order-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
+                <div className="shopping-order-guide"><strong>주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 주문내역에서 Ctrl+A → Ctrl+C 하세요.</span></div>
+                <div className="shopping-order-list">
+                  {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
+                </div>
+                <p>바로가기는 주문 화면을 여는 용도이며 자동 수집하지 않습니다. 복사한 내용을 아래에 붙여넣어 주세요.</p>
+              </nav>
+              <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
+                <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
+                <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
+              </form>
+              <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
+              <div className="paste-primary-actions"><button type="button" onClick={() => void pasteFromClipboard()}>클립보드에서 붙여넣기</button><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
             </div>
-            <p>바로가기는 주문 화면을 여는 용도이며 자동 수집하지 않습니다. 복사한 내용을 아래에 붙여넣어 주세요.</p>
-          </nav>
-          <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
-            <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
-            <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
-          </form>
-          <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
-          <div className="paste-primary-actions"><button type="button" onClick={() => void pasteFromClipboard()}>클립보드에서 붙여넣기</button><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
-          <div className="quick-start-fallback"><span>다른 자료가 있다면</span><button type="button" onClick={() => setImportOpen(true)}>PDF·엑셀·캡처·직접 입력</button></div>
+          ) : (
+            <div className="quick-start-panel quick-file-panel" id="file-method-panel" role="tabpanel" aria-labelledby="file-method-tab">
+              <div className="quick-file-guidance"><span aria-hidden="true">!</span><div><strong>만안문구처럼 주문 화면을 복사할 수 없을 때 사용하세요</strong><p>가능하면 쇼핑몰에서 저장한 PDF·엑셀을 올리고, 파일이 없으면 상품명·수량·할인가·배송비가 함께 보이도록 캡처해 주세요.</p></div></div>
+              <div className="pdf-save-guide" aria-labelledby="pdf-save-title">
+                <div className="pdf-save-heading"><div><span>가장 정확한 방법</span><h3 id="pdf-save-title">주문 화면을 PDF로 저장하는 방법</h3></div><em>Windows · Chrome · Edge</em></div>
+                <ol className="pdf-save-steps">
+                  <li><b>1</b><div><strong>주문내역 화면 열기</strong><p>상품명·옵션·수량·할인가·배송비가 모두 보이는 주문상세 화면을 여세요.</p></div></li>
+                  <li><b>2</b><div><strong><kbd>Ctrl</kbd> + <kbd>P</kbd> 누르기</strong><p>인쇄 화면의 프린터에서 <mark>PDF로 저장</mark> 또는 <mark>Microsoft Print to PDF</mark>를 선택하세요.</p></div></li>
+                  <li><b>3</b><div><strong>전체 페이지 저장 후 업로드</strong><p>페이지는 ‘전체’로 저장하고, 아래에서 저장한 PDF 파일을 선택하세요.</p></div></li>
+                </ol>
+                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 인쇄 미리보기에서 상품이 빠지면 PDF 대신 선명한 화면 캡처를 올려 주세요.</p>
+              </div>
+              <input ref={fileInputRef} className="file-input" type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.webp,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/*" onChange={chooseQuickFile} />
+              <button className="quick-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>
+                <span className="quick-file-icon" aria-hidden="true">↑</span>
+                <strong>{selectedFileName || "문서 또는 사진을 선택하세요"}</strong>
+                <small>여기를 누르거나 파일을 끌어다 놓으세요 · 최대 25MB</small>
+                <span className="quick-file-formats"><b>PDF</b><b>XLSX</b><b>PNG·JPG</b></span>
+              </button>
+              {imagePreview && <div className="quick-file-preview"><img src={imagePreview} alt="업로드한 주문 화면 캡처 미리보기" /><div><strong>캡처 준비 완료</strong><p>글자를 자동 인식한 뒤 수량·가격 확인 항목을 표시합니다.</p></div></div>}
+              <div className={`link-status ${fileKind}`} aria-live="polite"><span aria-hidden="true" />{fileStatus}</div>
+              <div className="quick-file-priority"><span><b>1</b> 쇼핑몰 PDF·엑셀</span><i aria-hidden="true">→</i><span><b>2</b> 선명한 화면 캡처</span><i aria-hidden="true">→</i><span><b>3</b> 노란 항목 확인</span></div>
+            </div>
+          )}
+          <div className="quick-start-more"><span>도우미 또는 직접 입력이 필요하신가요?</span><button type="button" onClick={() => setImportOpen(true)}>다른 방법 보기</button></div>
         </section>
         {hasItems ? <>
         <div className="page-heading">

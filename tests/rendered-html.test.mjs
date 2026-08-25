@@ -22,7 +22,9 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
 
   const html = await response.text();
   assert.match(html, /견적정리/);
-  assert.match(html, /주문 화면을 복사해 그대로 붙여넣으세요/);
+  assert.match(html, /주문내역을 가져오는 방법을 선택하세요/);
+  assert.match(html, /주문 화면 복사·붙이기/);
+  assert.match(html, /문서·사진/);
   assert.match(html, /품목 자동 작성/);
   assert.match(html, /아직 불러온 품목이 없어요/);
   assert.match(html, /정확하게 가져오는 권장 순서/);
@@ -59,7 +61,7 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   await access(new URL("../public/og.png", import.meta.url));
 });
 
-test("주문 화면 붙여넣기를 기본으로 두고 문서·사진과 도우미를 보조 경로로 둔다", async () => {
+test("스텝 1을 주문 화면 붙여넣기와 문서·사진 탭으로 구분하고 도우미를 보조 경로로 둔다", async () => {
   const [dialog, review, manifestText, extractor, bridge] = await Promise.all([
     readFile(new URL("../app/ImportDialog.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/ReviewApp.tsx", import.meta.url), "utf8"),
@@ -70,6 +72,18 @@ test("주문 화면 붙여넣기를 기본으로 두고 문서·사진과 도우
   const manifest = JSON.parse(manifestText);
 
   assert.match(review, /id="order-screen-text"/);
+  assert.match(review, /quickStartMode/);
+  assert.match(review, /주문 화면 복사·붙이기/);
+  assert.match(review, /role="tablist" aria-label="주문내역 가져오기 방법"/);
+  assert.match(review, /문서·사진/);
+  assert.match(review, /만안문구처럼 주문 화면을 복사할 수 없을 때/);
+  assert.match(review, /주문 화면을 PDF로 저장하는 방법/);
+  assert.match(review, /Microsoft Print to PDF/);
+  assert.match(review, /전체 페이지 저장 후 업로드/);
+  assert.match(review, /importQuickFile/);
+  assert.match(review, /importPdf\(file/);
+  assert.match(review, /importExcel\(file/);
+  assert.match(review, /importImage\(file/);
   assert.match(review, /parseOrderText\(pasteText/);
   assert.match(review, /품목 자동 작성/);
   assert.match(review, /클립보드에서 붙여넣기/);
@@ -85,6 +99,9 @@ test("주문 화면 붙여넣기를 기본으로 두고 문서·사진과 도우
   assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 · 11번가 자동 구분/);
   assert.match(dialog, /정가·할인율·쿠폰·적립금·판매자·배송상태/);
   assert.match(dialog, /PDF·엑셀 견적서·장바구니 캡처/);
+  assert.match(dialog, /chrome:\/\/extensions/);
+  assert.match(dialog, /edge:\/\/extensions/);
+  assert.match(dialog, /압축해제된 확장 프로그램 로드/);
   assert.match(dialog, /\.pdf,\.xlsx,\.xls,\.png,\.jpg/);
   assert.doesNotMatch(dialog, /원본 주문 링크|원본 주소/);
   assert.match(dialog, /QUOTE_REVIEW_REQUEST_CAPTURE/);

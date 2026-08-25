@@ -264,6 +264,11 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
               <div className="optional-label">선택 기능</div>
               <h3>주문을 자주 가져올 때만 사용하세요</h3>
               <p>브라우저 도우미는 반복 작업에는 빠르지만 최초 설치가 필요합니다. 대부분은 붙여넣기가 더 간단합니다.</p>
+              <ol className="capture-steps" aria-label="브라우저 도우미 최초 설치 순서">
+                <li><b>1</b><span>도우미 ZIP을 내려받아 <strong>압축을 풉니다.</strong></span></li>
+                <li><b>2</b><span>Chrome은 <strong>chrome://extensions</strong>, Edge는 <strong>edge://extensions</strong>에서 개발자 모드를 켭니다.</span></li>
+                <li><b>3</b><span><strong>압축해제된 확장 프로그램 로드</strong>를 눌러 압축을 푼 폴더를 선택합니다.</span></li>
+              </ol>
               <div className="browser-actions">
                 <a className="helper-download" href="./gyeonjeok-helper.zip" download>브라우저 도우미 받기</a>
                 <button className="dialog-primary" type="button" onClick={requestBrowserCapture}>저장된 주문내역 가져오기 <span aria-hidden="true">→</span></button>
