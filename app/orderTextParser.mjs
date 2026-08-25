@@ -287,6 +287,24 @@ const cleanBookName = (value) => cleanScrapedLine(value)
   .replace(/\s+/g, " ")
   .trim();
 
+const makeBookItem = ({ name, quantity, discountPrice, amount, sourceUrl, raw }) => {
+  const safeQuantity = Math.max(1, Math.round(quantity));
+  const safeAmount = amount || discountPrice * safeQuantity;
+  const safeUnitPrice = discountPrice || Math.round(safeAmount / safeQuantity);
+  return {
+    내용: name,
+    규격: "도서",
+    단위: "권",
+    수량: safeQuantity,
+    단가: safeUnitPrice,
+    금액: safeAmount,
+    _rawName: raw,
+    _warnings: safeAmount !== safeQuantity * safeUnitPrice ? ["V06"] : [],
+    ...(sourceUrl ? { sourceUrl } : {}),
+    excluded: false,
+  };
+};
+
 function yes24ProductItems(text) {
   const sourceUrl = sourceUrlFor(text, "yes24.com");
   const rawLines = String(text ?? "").replace(/\r/g, "").split("\n");
@@ -304,11 +322,10 @@ function yes24ProductItems(text) {
       const discountPrice = moneyValues(cells[3] ?? "")[0] ?? 0;
       const amount = moneyValues(cells[4] ?? "")[0] ?? 0;
       if (!name || !quantity || (!discountPrice && !amount)) continue;
-      tableItems.push(makeItem({
+      tableItems.push(makeBookItem({
         name,
-        spec: "도서",
-        unit: "권",
         quantity,
+        discountPrice,
         amount: amount || discountPrice * quantity,
         sourceUrl,
         raw: rawLine,
@@ -321,6 +338,36 @@ function yes24ProductItems(text) {
   const bookIndexes = lines.flatMap((line, index) => /^\[도서\]/i.test(line) ? [index] : []);
   return bookIndexes.flatMap((bookIndex, position) => {
     const block = lines.slice(bookIndex, bookIndexes[position + 1] ?? lines.length);
+    const detailCells = block.slice(1).flatMap((line) => {
+      const combinedPriceRow = line.match(/^([\d,]+\s*원)\s+(\d{1,4})\s+([\d,]+\s*원)(?:\s|$)/);
+      if (combinedPriceRow) return combinedPriceRow.slice(1);
+      return line.split(/\t|\s*\|\s*/).map(cleanScrapedLine).filter(Boolean);
+    });
+    const regularPriceIndex = detailCells.findIndex((cell, index) => (
+      moneyValues(cell).length > 0
+      && /^\d{1,4}$/.test(detailCells[index + 1] ?? "")
+      && moneyValues(detailCells[index + 2] ?? "").length > 0
+    ));
+    const name = cleanBookName(block[0]);
+
+    if (regularPriceIndex >= 0) {
+      const quantity = toNumber(detailCells[regularPriceIndex + 1]);
+      const discountPrice = moneyValues(detailCells[regularPriceIndex + 2])[0] ?? 0;
+      const totalCandidates = detailCells.slice(regularPriceIndex + 3)
+        .filter((cell) => !/(?:YES\s*)?포인트|적립|배송|도착|출고/i.test(cell))
+        .flatMap((cell) => moneyValues(cell));
+      const amount = totalCandidates.at(-1) ?? discountPrice * quantity;
+      if (!name || !quantity || !discountPrice || !amount) return [];
+      return [makeBookItem({
+        name,
+        quantity,
+        discountPrice,
+        amount,
+        sourceUrl,
+        raw: block.join(" "),
+      })];
+    }
+
     const quantityIndex = block.findIndex((line, index) => index > 0 && /^\d{1,4}$/.test(line));
     if (quantityIndex < 0) return [];
     const quantity = toNumber(block[quantityIndex]);
@@ -329,9 +376,8 @@ function yes24ProductItems(text) {
     const totalLine = amountLines.find((line) => !/할인/i.test(line));
     const unitPrice = moneyValues(discountPrice ?? "")[0] ?? 0;
     const amount = moneyValues(totalLine ?? "")[0] ?? unitPrice * quantity;
-    const name = cleanBookName(block[0]);
     if (!name || !amount) return [];
-    return [makeItem({ name, spec: "도서", unit: "권", quantity, amount, sourceUrl, raw: block.join(" ") })];
+    return [makeBookItem({ name, quantity, discountPrice: unitPrice, amount, sourceUrl, raw: block.join(" ") })];
   });
 }
 
@@ -519,7 +565,7 @@ export function parseOrderText(text, options = {}) {
   const detectedSourceUrl = options.sourceUrl || specialized.find((item) => item.sourceUrl)?.sourceUrl || (detectedTextUrl ? cleanScrapedUrl(detectedTextUrl) : undefined);
 
   return {
-    mall: mallFromUrl(detectedSourceUrl),
+    mall: yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
     sourceUrl: detectedSourceUrl || undefined,
     orderNo: findOrderNo(lines),
     capturedAt: new Date().toISOString(),

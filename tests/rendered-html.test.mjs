@@ -38,21 +38,21 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(source, /Array\.from\(\{ length: 18 \}/);
-  assert.match(source, /IF\(E\$\{rowNo\}=\"\",\"\",E\$\{rowNo\}\*F\$\{rowNo\}\)/);
-  assert.match(source, /SUM\(G8:G25\)/);
-  assert.match(source, /Math\.ceil\(included\.length \/ 18\)/);
-  assert.match(source, /<t>순번<\/t>/);
-  assert.match(source, /<t>예상단가<\/t>/);
-  assert.match(source, /<t>예상금액<\/t>/);
-  assert.match(source, /pages\.length > 1/);
-  assert.match(source, /전체 합계/);
+  assert.match(source, /sheet name="품목내역"/);
+  assert.match(source, /textCell\("A1", "내용", 1\)/);
+  assert.match(source, /textCell\("B1", "규격", 1\)/);
+  assert.match(source, /textCell\("C1", "단위", 1\)/);
+  assert.match(source, /textCell\("D1", "수량", 1\)/);
+  assert.match(source, /textCell\("E1", "예상단가", 1\)/);
+  assert.match(source, /width="14\.0625"/);
+  assert.match(source, /품목내역\(통합\)_\$\{safeOrderNo\}\.xlsx/);
+  assert.doesNotMatch(source, /SUM\(G8:G25\)|IF\(E\$\{rowNo\}|Math\.ceil\(included\.length \/ 18\)/);
   assert.match(source, /order\.reviewed\.json/);
   assert.match(source, /excluded: item\.excluded/);
   assert.match(source, /sourceUrl: meta\.sourceUrl/);
   assert.match(source, /V15: "예산 한도 초과"/);
+  assert.match(source, /blockingRules = new Set\(\["V01", "V04", "V05", "V07", "V11", "V12", "V15"\]\)/);
   assert.match(source, /stage === "pre-purchase"/);
-  assert.match(source, /구매 전 예상 · 예산/);
   assert.match(source, /new Blob\(\[bytes\.buffer as ArrayBuffer\]/);
   assert.match(layout, /new URL\("\/og\.png", base\)/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
@@ -73,6 +73,12 @@ test("주문 화면 붙여넣기를 기본으로 두고 문서·사진과 도우
   assert.match(review, /parseOrderText\(pasteText/);
   assert.match(review, /품목 자동 작성/);
   assert.match(review, /클립보드에서 붙여넣기/);
+  assert.match(review, /지원 쇼핑몰 주문 화면 바로가기/);
+  assert.match(review, /https:\/\/i-screammall\.co\.kr\//);
+  assert.match(review, /https:\/\/mc\.coupang\.com\/ssr\/desktop\/order\/list/);
+  assert.match(review, /https:\/\/myg\.gmarket\.co\.kr\//);
+  assert.match(review, /https:\/\/www\.yes24\.com\/Member\/FTMypageMain\.aspx/);
+  assert.match(review, /자동 수집하지 않습니다/);
   assert.doesNotMatch(review, /상품 링크를 한 줄에 하나씩|상품 초안 만들기|현재 화면 보내기|getDisplayMedia/);
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
   assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 자동 구분/);
@@ -89,6 +95,20 @@ test("주문 화면 붙여넣기를 기본으로 두고 문서·사진과 도우
   assert.match(bridge, /event\.origin !== window\.location\.origin/);
   await access(new URL("../public/gyeonjeok-helper.zip", import.meta.url));
   await access(new URL("../public/pdf.worker.min.mjs", import.meta.url));
+});
+
+test("GitHub Pages 정적 빌드와 배포 구성을 유지한다", async () => {
+  const [viteConfig, workflow, entry] = await Promise.all([
+    readFile(new URL("../vite.pages.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/pages.yml", import.meta.url), "utf8"),
+    readFile(new URL("../pages-app/main.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(viteConfig, /base: "\/school-quote-review\/"/);
+  assert.match(viteConfig, /outDir: "\.\.\/pages-dist"/);
+  assert.match(workflow, /actions\/upload-pages-artifact@v4/);
+  assert.match(workflow, /actions\/deploy-pages@v4/);
+  assert.match(entry, /<ReviewApp \/>/);
 });
 
 test("복사한 주문 화면을 6개 품목 필드와 안전 경고로 정규화한다", () => {
@@ -408,6 +428,51 @@ test("YES24 표는 정가와 포인트가 아닌 할인금액을 단가로, 합�
   assert.deepEqual(order.items.map((item) => item.단가), [15750, 15120, 12600, 13500, 15200]);
   assert.deepEqual(order.items.map((item) => item.금액), [31500, 30240, 25200, 27000, 30400]);
   assert.ok(order.items.every((item) => item.단위 === "권" && item.수량 === 2));
+});
+
+test("YES24 다중행 복사는 도서 제목과 수량·할인단가·합계를 순서대로 읽는다", () => {
+  const order = parseOrderText([
+    "[도서] 완다는 별의 소리를 들어요 새창",
+    "소득공제",
+    "17,500원\t2\t15,750원",
+    "(10%할인)",
+    "YES포인트870원",
+    "31,500원",
+    "8/26(수)",
+    "도착예정",
+    "```",
+    "[도서] 오늘도 헤엄치는 법 새창",
+    "```",
+    "소득공제",
+    "16,800원\t2\t15,120원",
+    "(10%할인)",
+    "YES포인트840원",
+    "30,240원",
+    "2일 이내",
+    "(8/27, 목)",
+    "출고예정",
+    "안내",
+    "[도서] 김밥의 탄생 새창",
+    "소득공제",
+    "17,000원\t2\t15,300원",
+    "(10%할인)",
+    "YES포인트850원",
+    "30,600원",
+    "8/26(수)",
+    "도착예정",
+  ].join("\n"));
+
+  assert.equal(order.mall, "YES24");
+  assert.deepEqual(order.items.map((item) => item.내용), [
+    "완다는 별의 소리를 들어요",
+    "오늘도 헤엄치는 법",
+    "김밥의 탄생",
+  ]);
+  assert.deepEqual(order.items.map((item) => item.수량), [2, 2, 2]);
+  assert.deepEqual(order.items.map((item) => item.단가), [15750, 15120, 15300]);
+  assert.deepEqual(order.items.map((item) => item.금액), [31500, 30240, 30600]);
+  assert.ok(order.items.every((item) => item.단위 === "권" && item.규격 === "도서"));
+  assert.equal(order.items.some((item) => /YES포인트|소득공제|도착|출고/.test(item.내용)), false);
 });
 
 test("엑셀 견적서 헤더와 합계를 읽고 순번 열은 품목에서 제외한다", () => {

@@ -95,7 +95,7 @@ export async function importExcel(file) {
 export async function importPdf(file, onProgress = (progress, label) => { void progress; void label; }) {
   onProgress(0.08, "PDF 글자를 읽고 있어요…");
   const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdf.worker.min.mjs", document.baseURI).href;
   const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const lines = [];
 

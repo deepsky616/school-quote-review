@@ -41,6 +41,13 @@ const initialMeta: OrderMeta = {
   warnings: [],
 };
 
+const shoppingOrderLinks = [
+  { name: "아이스크림몰", href: "https://i-screammall.co.kr/", hint: "로그인 후 주문내역" },
+  { name: "쿠팡", href: "https://mc.coupang.com/ssr/desktop/order/list", hint: "주문목록" },
+  { name: "G마켓", href: "https://myg.gmarket.co.kr/", hint: "나의 쇼핑정보" },
+  { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "마이페이지" },
+];
+
 const warningText: Record<string, string> = {
   V02: "품명 비어 있음",
   V03: "품명 미확정",
@@ -50,14 +57,13 @@ const warningText: Record<string, string> = {
   V07: "결제 총액 불일치",
   V08: "결제 총액 확인 필요",
   V09: "캡처 OCR 결과 확인 필요",
-  V10: "품목 18개 초과 · 여러 매로 분할",
   V11: "가격 기준 확인 필요",
   V12: "외화 항목 확인 필요",
   V13: "취소·반품 의심",
   V15: "예산 한도 초과",
 };
 
-const blockingRules = new Set(["V01", "V04", "V05", "V07", "V08", "V11", "V12", "V15"]);
+const blockingRules = new Set(["V01", "V04", "V05", "V07", "V11", "V12", "V15"]);
 const won = (value: number) => new Intl.NumberFormat("ko-KR").format(value);
 const safeNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
@@ -193,63 +199,31 @@ function zipStore(files: { name: string; content: string }[]) {
   return joinBytes([localData, centralData, end]);
 }
 
-function makeXlsx(items: ReviewItem[], meta: OrderMeta) {
+function makeXlsx(items: ReviewItem[]) {
   const included = items.filter((item) => !item.excluded);
-  const pages = included.length
-    ? Array.from({ length: Math.ceil(included.length / 18) }, (_, index) => included.slice(index * 18, index * 18 + 18))
-    : [[]];
-  const total = included.reduce((sum, item) => sum + item.수량 * item.단가, 0);
-  const sheetFiles = pages.map((pageItems, pageIndex) => {
-    const itemRows = Array.from({ length: 18 }, (_, index) => {
-      const rowNo = index + 8;
-      const item = pageItems[index];
-      const textCell = (ref: string, value: string, style = 0) => `<c r="${ref}" t="inlineStr" s="${style}"><is><t>${escapeXml(value)}</t></is></c>`;
-      const numberCell = (ref: string, value: number, style = 0) => `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
-      if (!item) return `<row r="${rowNo}">${textCell(`A${rowNo}`, "")}${textCell(`B${rowNo}`, "")}${textCell(`C${rowNo}`, "")}${textCell(`D${rowNo}`, "")}${textCell(`E${rowNo}`, "")}${textCell(`F${rowNo}`, "")}` +
-        `<c r="G${rowNo}" s="3"><f>IF(E${rowNo}="","",E${rowNo}*F${rowNo})</f></c></row>`;
-      return `<row r="${rowNo}">${numberCell(`A${rowNo}`, pageIndex * 18 + index + 1)}${textCell(`B${rowNo}`, item.내용)}${textCell(`C${rowNo}`, item.규격)}${textCell(`D${rowNo}`, item.단위)}` +
-        `${numberCell(`E${rowNo}`, item.수량)}${numberCell(`F${rowNo}`, item.단가, 3)}` +
-        `<c r="G${rowNo}" s="3"><f>IF(E${rowNo}="","",E${rowNo}*F${rowNo})</f><v>${item.수량 * item.단가}</v></c></row>`;
-    }).join("");
-    const subtotal = pageItems.reduce((sum, item) => sum + item.수량 * item.단가, 0);
-    const budgetNote = meta.stage === "pre-purchase"
-      ? meta.budget > 0
-        ? `구매 전 예상 · 예산 ${won(meta.budget)}원 · 예상 합계 ${won(total)}원 · ${total > meta.budget ? `초과 ${won(total - meta.budget)}원` : `잔액 ${won(meta.budget - total)}원`}`
-        : `구매 전 예상 · 예상 합계 ${won(total)}원`
-      : "내부 품의·정리용";
-    const pageNote = pages.length > 1
-      ? `(총 ${pages.length}매 중 ${pageIndex + 1}매) · 전체 합계 ${won(total)}원 · ${budgetNote}`
-      : `※ ${budgetNote} · 본 자료는 내부 참고용이며 원본 증빙을 대체하지 않습니다.`;
-    const orderLine = pages.length > 1
-      ? `주문번호 ${escapeXml(meta.orderNo)} · 총 ${pages.length}매 중 ${pageIndex + 1}매`
-      : `주문번호 ${escapeXml(meta.orderNo)}`;
-    const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:G27"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="20"/>
-<cols><col min="1" max="1" width="7" customWidth="1"/><col min="2" max="2" width="30" customWidth="1"/><col min="3" max="3" width="22" customWidth="1"/><col min="4" max="4" width="9" customWidth="1"/><col min="5" max="7" width="14" customWidth="1"/></cols><sheetData>
-<row r="1" ht="30" customHeight="1"><c r="A1" t="inlineStr" s="1"><is><t>학교 물품구입 견적서</t></is></c></row>
-<row r="3"><c r="A3" t="inlineStr" s="2"><is><t>수신</t></is></c><c r="B3" t="inlineStr"><is><t>○○초등학교장</t></is></c><c r="F3" t="inlineStr" s="2"><is><t>견적일자</t></is></c><c r="G3" t="inlineStr"><is><t>${new Date().toISOString().slice(0, 10)}</t></is></c></row>
-<row r="4"><c r="A4" t="inlineStr" s="2"><is><t>건명</t></is></c><c r="B4" t="inlineStr"><is><t>${escapeXml(meta.mall)} 주문 물품 구입</t></is></c></row>
-<row r="6"><c r="A6" t="inlineStr" s="4"><is><t>${orderLine}</t></is></c></row>
-<row r="7"><c r="A7" t="inlineStr" s="2"><is><t>순번</t></is></c><c r="B7" t="inlineStr" s="2"><is><t>내용</t></is></c><c r="C7" t="inlineStr" s="2"><is><t>규격</t></is></c><c r="D7" t="inlineStr" s="2"><is><t>단위</t></is></c><c r="E7" t="inlineStr" s="2"><is><t>수량</t></is></c><c r="F7" t="inlineStr" s="2"><is><t>예상단가</t></is></c><c r="G7" t="inlineStr" s="2"><is><t>예상금액</t></is></c></row>
-${itemRows}
-<row r="26"><c r="F26" t="inlineStr" s="2"><is><t>합계</t></is></c><c r="G26" s="3"><f>SUM(G8:G25)</f><v>${subtotal}</v></c></row>
-<row r="27"><c r="A27" t="inlineStr" s="4"><is><t>${escapeXml(pageNote)}</t></is></c></row>
-</sheetData><mergeCells count="3"><mergeCell ref="A1:G1"/><mergeCell ref="B4:E4"/><mergeCell ref="A27:G27"/></mergeCells><pageMargins left="0.5" right="0.5" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="portrait" fitToWidth="1" fitToHeight="1"/></worksheet>`;
-    return { name: `xl/worksheets/sheet${pageIndex + 1}.xml`, content: sheet };
-  });
+  const textCell = (ref: string, value: string, style: number) => `<c r="${ref}" t="inlineStr" s="${style}"><is><t>${escapeXml(value)}</t></is></c>`;
+  const numberCell = (ref: string, value: number, style: number) => `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+  const rows = included.map((item, index) => {
+    const rowNo = index + 2;
+    return `<row r="${rowNo}" ht="17" customHeight="1">${textCell(`A${rowNo}`, item.내용, 2)}${textCell(`B${rowNo}`, item.규격, 2)}${textCell(`C${rowNo}`, item.단위, 2)}${numberCell(`D${rowNo}`, item.수량, 2)}${numberCell(`E${rowNo}`, item.단가, 3)}</row>`;
+  }).join("");
+  const lastRow = Math.max(1, included.length + 1);
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:E${lastRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="17"/>
+<cols><col min="1" max="5" width="14.0625" customWidth="1"/></cols><sheetData>
+<row r="1" ht="17" customHeight="1">${textCell("A1", "내용", 1)}${textCell("B1", "규격", 1)}${textCell("C1", "단위", 1)}${textCell("D1", "수량", 1)}${textCell("E1", "예상단가", 1)}</row>
+${rows}
+</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>`;
 
-  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0&quot;원&quot;"/></numFmts><fonts count="3"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="18"/><color rgb="FF173027"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF176B4D"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border/><border><left style="thin"><color rgb="FFD9DED9"/></left><right style="thin"><color rgb="FFD9DED9"/></right><top style="thin"><color rgb="FFD9DED9"/></top><bottom style="thin"><color rgb="FFD9DED9"/></bottom></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"><alignment wrapText="1"/></xf></cellXfs></styleSheet>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0_ "/></numFmts><fonts count="3"><font><sz val="9"/><name val="돋움"/></font><font><b/><sz val="9"/><color rgb="FFFFFFFF"/><name val="돋움"/></font><font><sz val="9"/><color rgb="FF008000"/><name val="돋움"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF000000"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border/><border><left style="thin"><color rgb="FFD9DED9"/></left><right style="thin"><color rgb="FFD9DED9"/></right><top style="thin"><color rgb="FFD9DED9"/></top><bottom style="thin"><color rgb="FFD9DED9"/></bottom></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="2" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf></cellXfs></styleSheet>`;
 
-  const sheetOverrides = pages.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
-  const workbookSheets = pages.map((_, index) => `<sheet name="견적서${pages.length > 1 ? `_${index + 1}` : ""}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("");
-  const workbookRelationships = pages.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("");
   const files = [
-    { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheetOverrides}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
     { name: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
-    { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets}</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>` },
-    { name: "xl/_rels/workbook.xml.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRelationships}<Relationship Id="rId${pages.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="품목내역" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: "xl/_rels/workbook.xml.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
     { name: "xl/styles.xml", content: styles },
-    ...sheetFiles,
+    { name: "xl/worksheets/sheet1.xml", content: sheet },
   ];
   const bytes = zipStore(files);
   return new Blob([bytes.buffer as ArrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -280,7 +254,6 @@ export default function ReviewApp() {
     const warnings = [...meta.warnings, ...items.flatMap((item) => item.warnings)];
     if (meta.stage === "post-purchase" && meta.paidTotal && meta.paidTotal !== total) warnings.push("V07");
     if (meta.stage === "pre-purchase" && meta.budget > 0 && total > meta.budget) warnings.push("V15");
-    if (included.length > 18) warnings.push("V10");
     const comparison = meta.stage === "pre-purchase" ? meta.budget : meta.paidTotal;
     return { total, delta: comparison - total, warnings, included };
   }, [items, meta.budget, meta.paidTotal, meta.stage, meta.warnings]);
@@ -367,8 +340,9 @@ export default function ReviewApp() {
 
   const createEstimate = () => {
     if (hasBlock || totals.included.length === 0) return;
-    download(makeXlsx(items, meta), `견적서_${meta.orderNo}.xlsx`);
-    setMessage("견적서를 만들었어요");
+    const safeOrderNo = meta.orderNo.replace(/[\\/:*?"<>|]/g, "_");
+    download(makeXlsx(items), `품목내역(통합)_${safeOrderNo}.xlsx`);
+    setMessage("품목내역(통합) 양식으로 만들었어요");
   };
 
   return (
@@ -383,6 +357,13 @@ export default function ReviewApp() {
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
           <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">주문 화면을 복사해 그대로 붙여넣으세요</h2><p>아이스크림몰·쿠팡·G마켓·YES24 주문 형식을 자동 구분하고, 여러 가격 중 최종 할인가를 사용합니다.</p></div>
+          <nav className="shopping-order-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
+            <div className="shopping-order-guide"><strong>주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 주문내역에서 Ctrl+A → Ctrl+C 하세요.</span></div>
+            <div className="shopping-order-list">
+              {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
+            </div>
+            <p>바로가기는 주문 화면을 여는 용도이며 자동 수집하지 않습니다. 복사한 내용을 아래에 붙여넣어 주세요.</p>
+          </nav>
           <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
             <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
             <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>

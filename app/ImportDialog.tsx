@@ -265,7 +265,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
               <h3>주문을 자주 가져올 때만 사용하세요</h3>
               <p>브라우저 도우미는 반복 작업에는 빠르지만 최초 설치가 필요합니다. 대부분은 붙여넣기가 더 간단합니다.</p>
               <div className="browser-actions">
-                <a className="helper-download" href="/gyeonjeok-helper.zip" download>브라우저 도우미 받기</a>
+                <a className="helper-download" href="./gyeonjeok-helper.zip" download>브라우저 도우미 받기</a>
                 <button className="dialog-primary" type="button" onClick={requestBrowserCapture}>저장된 주문내역 가져오기 <span aria-hidden="true">→</span></button>
               </div>
             </div>
