@@ -18,6 +18,7 @@ type ReviewItem = {
   excludeReason?: string;
   warnings: string[];
   sourceUrl?: string;
+  manuallyAdded?: boolean;
 };
 
 type OrderMeta = {
@@ -67,7 +68,7 @@ const warningText: Record<string, string> = {
   V15: "예산 한도 초과",
 };
 
-const blockingRules = new Set(["V01", "V04", "V05", "V07", "V11", "V12", "V15"]);
+const blockingRules = new Set(["V01", "V02", "V04", "V05", "V07", "V11", "V12", "V15"]);
 const won = (value: number) => new Intl.NumberFormat("ko-KR").format(value);
 const safeNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
@@ -84,7 +85,7 @@ function deriveWarnings(item: ReviewItem) {
   const warnings = new Set(item.warnings);
   if (!item.내용.trim()) warnings.add("V02"); else warnings.delete("V02");
   if (!Number.isInteger(item.수량) || item.수량 < 1) warnings.add("V04"); else warnings.delete("V04");
-  if (!Number.isFinite(item.단가) || item.단가 < 0) warnings.add("V05"); else warnings.delete("V05");
+  if (!Number.isFinite(item.단가) || item.단가 < 0 || (item.manuallyAdded && warnings.has("V05") && item.단가 === 0)) warnings.add("V05"); else warnings.delete("V05");
   return [...warnings];
 }
 
@@ -118,6 +119,7 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
       excluded: Boolean(row.excluded),
       excludeReason: row.excludeReason ? String(row.excludeReason) : undefined,
       warnings,
+      manuallyAdded: Boolean(row.manuallyAdded),
       sourceUrl: typeof (row.sourceUrl ?? row.url) === "string" && /^https?:\/\//.test(String(row.sourceUrl ?? row.url))
         ? String(row.sourceUrl ?? row.url)
         : undefined,
@@ -280,6 +282,30 @@ export default function ReviewApp() {
     window.setTimeout(() => setMessage("자동 저장됨"), 450);
   };
 
+  const addItem = () => {
+    const id = `manual-${Date.now()}`;
+    setItems((current) => [...current, {
+      id,
+      내용: "",
+      규격: "",
+      단위: "개",
+      수량: 1,
+      단가: 0,
+      _rawName: "직접 추가한 품목",
+      excluded: false,
+      warnings: ["V02", "V05"],
+      manuallyAdded: true,
+    }]);
+    setIssuesOnly(false);
+    setMessage("빈 품목을 추가했어요");
+    window.requestAnimationFrame(() => document.getElementById(`item-name-${id}`)?.focus());
+  };
+
+  const removeItem = (id: string) => {
+    setItems((current) => current.filter((item) => item.id !== id));
+    setMessage("직접 추가한 품목을 삭제했어요");
+  };
+
   const applyOrder = useCallback((value: unknown, label: string) => {
     try {
       const normalized = normalizeOrder(value);
@@ -335,10 +361,13 @@ export default function ReviewApp() {
       const order = await importPdf(file, (progress: number, label: string) => {
         setFileStatus(`${label} ${Math.round(progress * 100)}%`);
       });
+      const extractedBy = (order as { _extractedBy?: unknown })._extractedBy;
       const error = applyOrder(order, file.name);
       if (error) throw new Error(error);
       setFileKind("success");
-      setFileStatus("품목을 정리했습니다. 아래 검수표에서 노란 표시만 확인해 주세요.");
+      setFileStatus(extractedBy === "pdf-text"
+        ? "PDF 내부 글자 순서로 정리했습니다. 누락되거나 잘못 연결된 품목은 아래 ‘품목 추가’로 보완해 주세요."
+        : "품목을 정리했습니다. 아래 검수표에서 노란 표시만 확인해 주세요.");
     } catch (error) {
       setFileKind("error");
       setFileStatus(error instanceof Error ? error.message : "파일을 읽지 못했습니다.");
@@ -355,33 +384,6 @@ export default function ReviewApp() {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
     if (file) await importQuickFile(file);
-  };
-
-  const saveReview = () => {
-    const reviewed = {
-      mall: meta.mall,
-      orderNo: meta.orderNo,
-      paidTotal: meta.paidTotal,
-      budget: meta.budget,
-      stage: meta.stage,
-      sourceUrl: meta.sourceUrl,
-      sourceUrls: meta.sourceUrls,
-      reviewedAt: new Date().toISOString(),
-      items: items.map((item) => ({
-        내용: item.내용,
-        규격: item.규격,
-        단위: item.단위,
-        수량: item.수량,
-        단가: item.단가,
-        금액: item.수량 * item.단가,
-        _rawName: item._rawName,
-        sourceUrl: item.sourceUrl,
-        excluded: item.excluded,
-        ...(item.excludeReason ? { excludeReason: item.excludeReason } : {}),
-      })),
-    };
-    download(new Blob([JSON.stringify(reviewed, null, 2)], { type: "application/json;charset=utf-8" }), "order.reviewed.json");
-    setMessage("검수 내용을 저장했어요");
   };
 
   const createEstimate = () => {
@@ -442,7 +444,7 @@ export default function ReviewApp() {
                   <li><b>2</b><div><strong><kbd>Ctrl</kbd> + <kbd>P</kbd> 누르기</strong><p>인쇄 화면의 프린터에서 <mark>PDF로 저장</mark> 또는 <mark>Microsoft Print to PDF</mark>를 선택하세요.</p></div></li>
                   <li><b>3</b><div><strong>전체 페이지 저장 후 업로드</strong><p>페이지는 ‘전체’로 저장하고, 아래에서 저장한 PDF 파일을 선택하세요.</p></div></li>
                 </ol>
-                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 인쇄 미리보기에서 모든 상품 행이 보이는지 확인한 뒤 저장하세요.</p>
+                <p className="pdf-save-tip"><span aria-hidden="true">i</span> PDF는 화면과 내부 글자 순서가 다를 수 있습니다. 인쇄 미리보기에서 모든 상품 행을 확인하고, 업로드 뒤 빠진 품목은 검수표의 ‘품목 추가’로 보완하세요.</p>
               </div>
               <button className="quick-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>
                 <span className="quick-file-icon" aria-hidden="true">↑</span>
@@ -522,7 +524,10 @@ export default function ReviewApp() {
 
           <div className="table-toolbar">
             <div><h2>품목 {items.length}개</h2><p>포함 여부와 내용을 바꾸면 합계가 바로 갱신됩니다.</p></div>
-            <span className="autosave" aria-live="polite"><i aria-hidden="true" /> {message}</span>
+            <div className="table-toolbar-actions">
+              <span className="autosave" aria-live="polite"><i aria-hidden="true" /> {message}</span>
+              <button className="add-item-button" type="button" onClick={addItem}><span aria-hidden="true">＋</span> 품목 추가</button>
+            </div>
           </div>
 
           <div className="quote-table" role="table" aria-label="견적 품목 검수">
@@ -531,15 +536,17 @@ export default function ReviewApp() {
               <div className={`quote-row ${item.warnings.length ? "needs-check" : ""} ${item.excluded ? "is-excluded" : ""}`} role="row" key={item.id}>
                 <span className="sequence-cell" role="cell"><input className="real-check" type="checkbox" checked={!item.excluded} onChange={(event) => updateItem(item.id, { excluded: !event.target.checked, excludeReason: event.target.checked ? undefined : item.excludeReason ?? "검수에서 제외" })} aria-label={`${item.내용} 견적서 포함`} /><b>{items.findIndex((candidate) => candidate.id === item.id) + 1}</b></span>
                 <span className="name-cell" role="cell">
-                  <span className="item-line"><input className="cell-input name-input" value={item.내용} onChange={(event) => updateItem(item.id, { 내용: event.target.value, warnings: item.warnings.filter((warning) => warning !== "V03") })} aria-label={`${item.내용} 품명`} />{item.warnings.map((warning) => <em key={warning}>{warning}</em>)}</span>
-                  <small title={item._rawName}>{item._rawName}</small>
+                  <span className="item-line"><input id={`item-name-${item.id}`} className="cell-input name-input" value={item.내용} onChange={(event) => updateItem(item.id, { 내용: event.target.value, warnings: item.warnings.filter((warning) => warning !== "V03") })} aria-label={`${item.내용 || "새 품목"} 품명`} />{item.warnings.map((warning) => <em key={warning}>{warning}</em>)}</span>
+                  {item.manuallyAdded
+                    ? <span className="manual-item-meta"><b>직접 추가</b><button type="button" onClick={() => removeItem(item.id)}>행 삭제</button></span>
+                    : <small title={item._rawName}>{item._rawName}</small>}
                   {item.sourceUrl && <a className="item-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">원본 상품 ↗</a>}
                   {item.excluded && <span className="exclude-note">제외 사유 · {item.excludeReason ?? "검수에서 제외"}</span>}
                 </span>
                 <span role="cell"><input className="cell-input" value={item.규격} onChange={(event) => updateItem(item.id, { 규격: event.target.value })} aria-label={`${item.내용} 규격`} /></span>
                 <span role="cell"><input className="cell-input unit-input" value={item.단위} onChange={(event) => updateItem(item.id, { 단위: event.target.value })} aria-label={`${item.내용} 단위`} /></span>
                 <span role="cell"><input className="cell-input numeric-input" type="number" min="1" step="1" value={item.수량} onChange={(event) => updateItem(item.id, { 수량: safeNumber(event.target.value), warnings: item.warnings.filter((warning) => warning !== "V04" && warning !== "V06") })} aria-label={`${item.내용} 수량`} /></span>
-                <span className="number" role="cell"><input className="cell-input price-input" type="number" min="0" step="1" value={item.단가} onChange={(event) => updateItem(item.id, { 단가: safeNumber(event.target.value), warnings: item.warnings.filter((warning) => warning !== "V05" && warning !== "V06" && warning !== "V11") })} aria-label={`${item.내용} 예상단가`} /></span>
+                <span className="number" role="cell"><input className="cell-input price-input" type="number" min="0" step="1" value={item.manuallyAdded && item.warnings.includes("V05") ? "" : item.단가} onChange={(event) => { const value = event.target.value; updateItem(item.id, { 단가: safeNumber(value), warnings: value === "" ? [...new Set([...item.warnings, "V05"])] : item.warnings.filter((warning) => warning !== "V05" && warning !== "V06" && warning !== "V11") }); }} aria-label={`${item.내용 || "새 품목"} 예상단가`} /></span>
                 <span className="number amount" role="cell">{won(item.수량 * item.단가)}</span>
               </div>
             ))}
@@ -547,7 +554,7 @@ export default function ReviewApp() {
 
           <div className="card-footer">
             <p><span aria-hidden="true">ⓘ</span> 내부 품의·정리용입니다. 원본 증빙은 별도로 보관해 주세요.</p>
-            <div className="footer-actions"><button className="secondary-button" type="button" onClick={saveReview}>검수 내용 저장</button><button className="primary-button" type="button" onClick={createEstimate} disabled={hasBlock || totals.included.length === 0}>견적서 생성 <span aria-hidden="true">→</span></button></div>
+            <div className="footer-actions"><button className="primary-button" type="button" onClick={createEstimate} disabled={hasBlock || totals.included.length === 0}>견적서 생성 <span aria-hidden="true">→</span></button></div>
           </div>
         </div>
         </> : (

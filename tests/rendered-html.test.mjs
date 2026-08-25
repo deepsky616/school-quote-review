@@ -50,11 +50,14 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   assert.match(source, /width="14\.0625"/);
   assert.match(source, /품목내역\(통합\)_\$\{safeOrderNo\}\.xlsx/);
   assert.doesNotMatch(source, /SUM\(G8:G25\)|IF\(E\$\{rowNo\}|Math\.ceil\(included\.length \/ 18\)/);
-  assert.match(source, /order\.reviewed\.json/);
-  assert.match(source, /excluded: item\.excluded/);
-  assert.match(source, /sourceUrl: meta\.sourceUrl/);
+  assert.doesNotMatch(source, /order\.reviewed\.json|검수 내용 저장/);
+  assert.match(source, /const addItem = \(\) =>/);
+  assert.match(source, /manuallyAdded: true/);
+  assert.match(source, /품목 추가/);
+  assert.match(source, /const removeItem = \(id: string\) =>/);
+  assert.match(source, /행 삭제/);
   assert.match(source, /V15: "예산 한도 초과"/);
-  assert.match(source, /blockingRules = new Set\(\["V01", "V04", "V05", "V07", "V11", "V12", "V15"\]\)/);
+  assert.match(source, /blockingRules = new Set\(\["V01", "V02", "V04", "V05", "V07", "V11", "V12", "V15"\]\)/);
   assert.match(source, /stage === "pre-purchase"/);
   assert.match(source, /new Blob\(\[bytes\.buffer as ArrayBuffer\]/);
   assert.match(layout, /new URL\("\/og\.png", base\)/);
@@ -157,6 +160,7 @@ test("PDF 불러오기는 브라우저 document와 PDF 문서 변수를 충돌�
   const source = await readFile(new URL("../app/fileImport.mjs", import.meta.url), "utf8");
   assert.match(source, /globalThis\.document\?\.baseURI/);
   assert.match(source, /const pdfDocument = await pdfjs\.getDocument/);
+  assert.match(source, /order\._extractedBy = "pdf-text"/);
   assert.doesNotMatch(source, /const document = await pdfjs\.getDocument/);
 });
 

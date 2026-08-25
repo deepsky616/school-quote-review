@@ -214,7 +214,9 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
   onProgress(0.9, "품목과 금액을 구분하고 있어요…");
   const mananOrder = mananPositionedPagesToOrder(positionedPages);
   if (mananOrder) return mananOrder;
-  return parseOrderText(lines.join("\n"));
+  const order = parseOrderText(lines.join("\n"));
+  order._extractedBy = "pdf-text";
+  return order;
 }
 
 export async function importImage(file, onProgress = (progress, label) => { void progress; void label; }) {
