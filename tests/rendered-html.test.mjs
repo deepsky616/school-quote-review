@@ -72,9 +72,9 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   assert.match(source, /blockingRules = new Set\(\["V01", "V02", "V04", "V05", "V07", "V11", "V12", "V15"\]\)/);
   assert.match(source, /stage === "pre-purchase"/);
   assert.match(source, /new Blob\(\[bytes\.buffer as ArrayBuffer\]/);
-  assert.match(layout, /new URL\("\/og\.png", base\)/);
+  assert.match(layout, /new URL\("\/og-edufine\.png", base\)/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
-  await access(new URL("../public/og.png", import.meta.url));
+  await access(new URL("../public/og-edufine.png", import.meta.url));
 });
 
 test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으로 구분하고 도우미를 보조 경로로 둔다", async () => {

@@ -33,13 +33,13 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: new URL("/og.png", base).toString(), width: 1740, height: 900, alt: "에듀파인 품의내역 생성기 — 주문 내역을 학교 품의내역으로 안전하게" }],
+      images: [{ url: new URL("/og-edufine.png", base).toString(), width: 1731, height: 909, alt: "에듀파인 품의내역 생성기 — 주문 내역을 학교 품의내역으로 안전하게" }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [new URL("/og.png", base).toString()],
+      images: [new URL("/og-edufine.png", base).toString()],
     },
   };
 }
