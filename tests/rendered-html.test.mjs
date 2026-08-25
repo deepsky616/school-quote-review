@@ -30,6 +30,7 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
 
   const html = await response.text();
   assert.match(html, /에듀파인 품의내역 생성기/);
+  assert.match(html, /brand-mark[^>]*>📋<\/span>/);
   assert.match(html, /주문내역을 가져오는 방법을 선택하세요/);
   assert.match(html, /주문 화면 복사·붙이기/);
   assert.match(html, /PDF 문서/);
@@ -114,7 +115,8 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /accept="\.pdf,application\/pdf"/);
   assert.match(review, /parseOrderText\(pasteText/);
   assert.match(review, /품목 자동 작성/);
-  assert.match(review, /클립보드에서 붙여넣기/);
+  assert.doesNotMatch(review, /클립보드에서 붙여넣기|navigator\.clipboard\.readText/);
+  assert.doesNotMatch(dialog, /클립보드에서 붙여넣기|navigator\.clipboard\.readText/);
   assert.match(review, /지원 쇼핑몰 주문 화면 바로가기/);
   assert.match(review, /https:\/\/i-screammall\.co\.kr\//);
   assert.match(review, /https:\/\/mc\.coupang\.com\/ssr\/desktop\/order\/list/);

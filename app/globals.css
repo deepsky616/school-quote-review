@@ -64,7 +64,8 @@ button { cursor: pointer; }
   border-radius: 11px;
   background: var(--green);
   color: #fff;
-  font-size: 16px;
+  font-size: 18px;
+  line-height: 1;
   box-shadow: inset 0 -2px 0 rgba(0,0,0,.12);
 }
 
@@ -118,8 +119,7 @@ button { cursor: pointer; }
 .link-import-form button:disabled { cursor: not-allowed; opacity: .48; }
 .paste-import-form > div { align-items: stretch; }
 .paste-import-form textarea { min-height: 166px; font-family: var(--font-geist-mono), monospace; }
-.paste-primary-actions { display: flex; align-items: flex-end; gap: 10px; margin-top: 11px; }
-.paste-primary-actions > button { min-height: 38px; padding: 0 12px; border: 1px solid #bfd1c5; border-radius: 8px; background: #fff; color: #476355; font-size: 10px; font-weight: 850; }
+.paste-primary-actions { display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; margin-top: 11px; }
 .paste-primary-actions label { display: grid; gap: 5px; color: #64736b; font-size: 9px; font-weight: 850; }
 .paste-primary-actions label span { color: #9aa59f; font-weight: 650; }
 .paste-primary-actions input { width: 180px; height: 38px; padding: 0 10px; border: 1px solid #ced9d2; border-radius: 8px; background: #fff; color: var(--ink); text-align: right; }
@@ -425,8 +425,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .paste-meta-grid label { display: grid; gap: 6px; color: #56665e; font-size: 10px; font-weight: 800; }
 .paste-meta-grid label span { margin-left: 4px; color: #9ca59f; font-weight: 600; }
 .paste-meta-grid input { width: 100%; padding: 10px 11px; border: 1px solid #d3dcd6; border-radius: 8px; outline: none; background: #fff; color: var(--ink); font-size: 11px; }
-.paste-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 14px; }
-.clipboard-button { padding: 11px 14px; border: 1px solid #cbd7cf; border-radius: 9px; background: #fff; color: #4e6057; font-size: 11px; font-weight: 800; }
+.paste-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .dialog-primary:disabled { cursor: not-allowed; opacity: .42; box-shadow: none; }
 .capture-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 22px 0; padding: 0; list-style: none; }
 .capture-steps li { min-height: 85px; padding: 13px; border: 1px solid #dce6df; border-radius: 10px; background: rgba(255,255,255,.72); }

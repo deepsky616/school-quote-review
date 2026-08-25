@@ -122,19 +122,6 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
     }
   };
 
-  const pasteFromClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) throw new Error("클립보드가 비어 있습니다.");
-      setPasteText(text);
-      setStatusKind("success");
-      setStatus("클립보드 내용을 붙여넣었어요. 아래에서 검수를 시작하세요.");
-    } catch {
-      setStatusKind("error");
-      setStatus("클립보드 접근이 차단됐어요. 입력 상자를 누르고 Ctrl+V로 붙여넣어 주세요.");
-    }
-  };
-
   const importFileObject = async (file: File) => {
     if (file.size > 25 * 1024 * 1024) {
       setStatusKind("error"); setStatus("파일은 25MB 이하로 올려 주세요."); return;
@@ -227,7 +214,6 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
                 <label>결제 총액 <span>못 찾을 때만</span><input inputMode="numeric" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label>
               </div>
               <div className="paste-actions">
-                <button className="clipboard-button" type="button" onClick={pasteFromClipboard}>클립보드에서 붙여넣기</button>
                 <button className="dialog-primary" type="button" onClick={importPastedOrder} disabled={!pasteText.trim()}>붙여넣은 내용 검수하기 <span aria-hidden="true">→</span></button>
               </div>
             </div>

@@ -333,19 +333,6 @@ export default function ReviewApp() {
     }
   };
 
-  const pasteFromClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) throw new Error("클립보드가 비어 있습니다.");
-      setPasteText(text);
-      setPasteKind("success");
-      setPasteStatus("클립보드 내용을 붙여넣었습니다. ‘품목 자동 작성’을 눌러 주세요.");
-    } catch {
-      setPasteKind("error");
-      setPasteStatus("입력칸을 누르고 Ctrl+V로 붙여넣어 주세요.");
-    }
-  };
-
   const importQuickFile = async (file: File) => {
     if (file.size > 25 * 1024 * 1024) {
       setFileKind("error");
@@ -397,7 +384,7 @@ export default function ReviewApp() {
     <main className="app-shell">
       {isImportOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={applyOrder} />}
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="에듀파인 품의내역 생성기 홈"><span className="brand-mark" aria-hidden="true">에</span><span>에듀파인 품의내역 생성기</span></a>
+        <a className="brand" href="#top" aria-label="에듀파인 품의내역 생성기 홈"><span className="brand-mark" aria-hidden="true">📋</span><span>에듀파인 품의내역 생성기</span></a>
         <div className="stepper" aria-label="진행 단계"><span className={`step ${hasItems ? "done" : "active"}`}><b>1</b> 주문내역 가져오기</span><span className={`step ${hasItems ? "active" : ""}`}><b>2</b> 내용 확인·수정</span><span className="step"><b>3</b> 엑셀 다운로드</span><span className="step"><b>4</b> K-에듀파인 등록</span></div>
       </header>
 
@@ -432,7 +419,7 @@ export default function ReviewApp() {
                 <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
               </form>
               <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
-              <div className="paste-primary-actions"><button type="button" onClick={() => void pasteFromClipboard()}>클립보드에서 붙여넣기</button><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
+              <div className="paste-primary-actions"><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
             </div>
           ) : quickStartMode === "file" ? (
             <div className="quick-start-panel quick-file-panel" id="file-method-panel" role="tabpanel" aria-labelledby="file-method-tab">
