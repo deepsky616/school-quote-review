@@ -65,10 +65,9 @@ const shippingItemFromLine = (line, sourceUrl) => {
   if (/무료\s*배송/i.test(rightmostOutcome)) return null;
   const shippingPrice = toNumber(rightmostOutcome);
   if (!shippingPrice) return null;
-  const threshold = cleaned.match(/([\d,]+)\s*원\s*이상\s*(?:구매\s*시\s*)?배송비\s*무료/i);
   return makeItem({
     name: "배송비",
-    spec: threshold ? `${threshold[1]}원 이상 구매 시 무료` : "",
+    spec: "",
     unit: "건",
     quantity: 1,
     amount: shippingPrice,
@@ -261,7 +260,7 @@ function gmarketPlainProductItems(text) {
     const spec = candidates.filter((line) => OPTION_LINE.test(line))
       .map((line) => line.replace(/^(선택|색상|옵션)(?=\S)/i, "$1 "))
       .join(" · ");
-    const nameLines = candidates.filter((line) => !OPTION_LINE.test(line)).slice(-2);
+    const nameLines = [...new Set(candidates.filter((line) => !OPTION_LINE.test(line)))].slice(-2);
     const name = nameLines.join(" ").trim();
     if (!name) return [];
 

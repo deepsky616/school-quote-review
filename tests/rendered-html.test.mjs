@@ -178,7 +178,7 @@ test("G마켓 스크랩은 상품별 수량·할인가를 맞추고 유료 배�
   assert.deepEqual(order.items.map((item) => item.금액), [7990, 14370, 3500, 27000, 3000, 5680, 3000]);
   assert.equal(order.items[0].규격, "선택 1+1 1세트");
   assert.equal(order.items[1].규격, "색상 반투명");
-  assert.equal(order.items[4].규격, "50,000원 이상 구매 시 무료");
+  assert.deepEqual(order.items.filter((item) => item.내용 === "배송비").map((item) => item.규격), ["", "", ""]);
   assert.equal(order.paidTotal, 64540);
   assert.equal(order.mall, "item.gmarket.co.kr");
 });
@@ -195,6 +195,7 @@ test("일반 주문 텍스트의 유료 배송비도 내용 배송비인 별도 
   const order = parseOrderText("실험용 비커 판매가 10,000원\n배송비 3,500원\n결제금액 13,500원");
   const shipping = order.items.find((item) => item.내용 === "배송비");
   assert.ok(shipping);
+  assert.equal(shipping.규격, "");
   assert.equal(shipping.단위, "건");
   assert.equal(shipping.수량, 1);
   assert.equal(shipping.단가, 3500);
@@ -220,7 +221,7 @@ test("배송 안내는 HTML 공백을 지우고 가장 오른쪽의 무료배송
     "배송비",
   ]);
   const shipping = order.items.at(-1);
-  assert.equal(shipping.규격, "50,000원 이상 구매 시 무료");
+  assert.equal(shipping.규격, "");
   assert.equal(shipping.단위, "건");
   assert.equal(shipping.수량, 1);
   assert.equal(shipping.단가, 3000);
@@ -404,7 +405,40 @@ test("G마켓 일반 붙여넣기는 취소선 정가보다 마지막 할인 상
     "메디와이퍼 의약외품 소독티슈 80매(캡형)x10팩 항 균 식약처인증",
   ]);
   assert.deepEqual(order.items.map((item) => item.단가), [4550, 3000, 2560, 3000, 1900, 3000, 22410]);
+  assert.deepEqual(order.items.filter((item) => item.내용 === "배송비").map((item) => item.규격), ["", "", ""]);
   assert.equal(order.items.some((item) => /쿠폰적용|스타배송|GS_SHOP|플러스shop/.test(item.내용)), false);
+});
+
+test("같은 상품명이 연속으로 반복되면 내용에는 한 번만 작성한다", () => {
+  const order = parseOrderText([
+    "오리온 초코파이 48P 1872g(1박스)",
+    "오리온 초코파이 48P 1872g(1박스)",
+    "수량1개",
+    "스타배송",
+    "내일(수) 도착보장",
+    "쿠폰적용",
+    "상품 금액 :",
+    "18,600원",
+    "14,880원",
+    "스타배송",
+    "15,000원 이상 구매시 배송비 무료무료배송",
+    "",
+    "글라스메이트 색연필 적 12자루 지구화학",
+    "글라스메이트 색연필 적 12자루 지구화학",
+    "수량1개",
+    "쿠폰적용",
+    "상품 금액 :2,890원",
+    "오피스디포",
+    "50,000원 이상 구매시 배송비 무료3,000원",
+  ].join("\n"));
+
+  assert.deepEqual(order.items.map((item) => item.내용), [
+    "오리온 초코파이 48P 1872g(1박스)",
+    "글라스메이트 색연필 적 12자루 지구화학",
+    "배송비",
+  ]);
+  assert.deepEqual(order.items.map((item) => item.단가), [14880, 2890, 3000]);
+  assert.equal(order.items.at(-1).규격, "");
 });
 
 test("YES24 표는 정가와 포인트가 아닌 할인금액을 단가로, 합계를 금액으로 읽는다", () => {
