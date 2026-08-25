@@ -1,10 +1,8 @@
 "use client";
 
-import { DragEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import ImportDialog from "./ImportDialog.tsx";
-import { importImage } from "./fileImport.mjs";
-import { analyzePublicShoppingLink, createBookmarklet, decodeBookmarkletCapture, getShoppingLinkInfo, parseShoppingLinks } from "./linkImport.mjs";
-import { chooseCapturedProductCandidate } from "./screenCapture.mjs";
+import { parseOrderText } from "./orderTextParser.mjs";
 
 type ReviewItem = {
   id: string;
@@ -29,30 +27,6 @@ type OrderMeta = {
   sourceUrl?: string;
   sourceUrls: string[];
   warnings: string[];
-};
-
-type LinkDraft = {
-  id: string;
-  sourceUrl: string;
-  mall: string;
-  productId: string;
-  name: string;
-  rawName: string;
-  spec: string;
-  unit: string;
-  quantity: number;
-  unitPrice: number;
-  lookupStatus: string;
-  confidence: number;
-  priceSource: string;
-  notes: string[];
-};
-
-type ScreenCaptureState = {
-  draftId: string | null;
-  kind: "idle" | "requesting" | "recognizing" | "success" | "error";
-  message: string;
-  previewUrl: string | null;
 };
 
 const initialItems: ReviewItem[] = [];
@@ -290,58 +264,16 @@ function download(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-async function captureSelectedProductScreen() {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    throw new Error("이 브라우저는 화면 선택 캡처를 지원하지 않습니다. 데스크톱 Chrome 또는 Edge에서 이용해 주세요.");
-  }
-
-  const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: { displaySurface: "browser" },
-    audio: false,
-  });
-  try {
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("선택한 상품 화면을 읽지 못했습니다."));
-      video.srcObject = stream;
-    });
-    await video.play();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    if (!video.videoWidth || !video.videoHeight) throw new Error("선택한 화면의 크기를 확인하지 못했습니다.");
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("상품 화면 이미지를 만들지 못했습니다.");
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("상품 화면 이미지를 만들지 못했습니다.")), "image/png"));
-    return new File([blob], `상품화면_${Date.now()}.png`, { type: "image/png" });
-  } finally {
-    stream.getTracks().forEach((track) => track.stop());
-  }
-}
-
 export default function ReviewApp() {
   const [items, setItems] = useState(initialItems);
   const [meta, setMeta] = useState(initialMeta);
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [message, setMessage] = useState("자동 저장됨");
   const [isImportOpen, setImportOpen] = useState(false);
-  const [shoppingUrl, setShoppingUrl] = useState("");
-  const [linkStatus, setLinkStatus] = useState("상품 링크를 붙여넣으면 견적 초안을 만들어요.");
-  const [linkKind, setLinkKind] = useState<"idle" | "working" | "success" | "needs-confirmation" | "error">("idle");
-  const [linkDrafts, setLinkDrafts] = useState<LinkDraft[]>([]);
-  const [draftBudget, setDraftBudget] = useState("");
-  const [draftError, setDraftError] = useState("");
-  const [bookmarklet, setBookmarklet] = useState("");
-  const [screenCapture, setScreenCapture] = useState<ScreenCaptureState>({ draftId: null, kind: "idle", message: "", previewUrl: null });
-  const bookmarkRef = useRef<HTMLAnchorElement>(null);
-  const capturePreviewRef = useRef<string | null>(null);
-
+  const [pasteText, setPasteText] = useState("");
+  const [pasteTotal, setPasteTotal] = useState("");
+  const [pasteStatus, setPasteStatus] = useState("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다.");
+  const [pasteKind, setPasteKind] = useState<"idle" | "success" | "error">("idle");
   const totals = useMemo(() => {
     const included = items.filter((item) => !item.excluded);
     const total = included.reduce((sum, item) => sum + item.수량 * item.단가, 0);
@@ -356,11 +288,6 @@ export default function ReviewApp() {
   const visibleItems = issuesOnly ? items.filter((item) => item.warnings.length > 0) : items;
   const hasBlock = totals.warnings.some((warning) => blockingRules.has(warning));
   const hasItems = items.length > 0;
-  const normalizedShoppingUrl = useMemo(() => {
-    try { return parseShoppingLinks(shoppingUrl)[0] ?? ""; } catch { return ""; }
-  }, [shoppingUrl]);
-  const draftTotal = useMemo(() => linkDrafts.reduce((sum, draft) => sum + draft.quantity * draft.unitPrice, 0), [linkDrafts]);
-
   const updateItem = (id: string, patch: Partial<ReviewItem>) => {
     setItems((current) => current.map((item) => {
       if (item.id !== id) return item;
@@ -385,232 +312,30 @@ export default function ReviewApp() {
     }
   }, []);
 
-  useEffect(() => {
-    const value = createBookmarklet(window.location.origin);
-    setBookmarklet(value);
-    bookmarkRef.current?.setAttribute("href", value);
-  }, []);
-
-  useEffect(() => {
-    if (!window.location.hash.startsWith("#quote-import=")) return;
+  const importPastedOrder = () => {
     try {
-      const order = decodeBookmarkletCapture(window.location.hash);
-      if (order) {
-        const error = applyOrder(order, "쇼핑몰 화면");
-        if (error) throw new Error(error);
-        setShoppingUrl(String((order as { sourceUrl?: string }).sourceUrl ?? ""));
-        setLinkKind("success");
-        setLinkStatus((order as { _extractedBy?: string })._extractedBy === "single-product-page"
-          ? "상품명과 공개 판매가를 가져왔어요. 수량·옵션·최종 결제금액을 확인해 주세요."
-          : "쇼핑몰 화면에서 상품 카드와 원본 링크를 가져왔어요.");
-      }
+      const order = parseOrderText(pasteText, { paidTotal: pasteTotal });
+      const error = applyOrder(order, "붙여넣은 주문 화면");
+      if (error) throw new Error(error);
+      setPasteKind("success");
+      setPasteStatus("품목을 정리했습니다. 아래 검수표에서 노란 표시만 확인해 주세요.");
     } catch (error) {
-      setLinkKind("error");
-      setLinkStatus(error instanceof Error ? error.message : "쇼핑몰 화면을 불러오지 못했습니다.");
-    } finally {
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      setPasteKind("error");
+      setPasteStatus(error instanceof Error ? error.message : "붙여넣은 내용을 읽지 못했습니다.");
     }
-  }, [applyOrder]);
+  };
 
-  useEffect(() => () => {
-    if (capturePreviewRef.current) URL.revokeObjectURL(capturePreviewRef.current);
-  }, []);
-
-  const analyzeShoppingLink = async () => {
-    setLinkKind("working");
-    setLinkDrafts([]);
-    setDraftError("");
-    setLinkStatus("상품번호와 공개 가격의 출처를 확인하고 있어요…");
+  const pasteFromClipboard = async () => {
     try {
-      const links = parseShoppingLinks(shoppingUrl);
-      setShoppingUrl(links.join("\n"));
-      const allDrafts: LinkDraft[] = [];
-      for (let offset = 0; offset < links.length; offset += 4) {
-        const batch = await Promise.all(links.slice(offset, offset + 4).map(async (sourceUrl, batchIndex) => {
-          const linkIndex = offset + batchIndex;
-          const linkInfo = getShoppingLinkInfo(sourceUrl);
-          if (linkInfo.kind === "gmarket-product") {
-            let payload: { name?: string; price?: number; lookupStatus?: string; confidence?: number; source?: string; notes?: string[] } = {};
-            try {
-              const response = await fetch(`/api/product-draft?mall=gmarket&productId=${encodeURIComponent(linkInfo.productId)}`, { headers: { Accept: "application/json" } });
-              if (response.ok) payload = await response.json();
-            } catch { /* 상품번호를 보존한 빈 초안으로 계속 진행 */ }
-            const name = String(payload.name ?? "");
-            return [{
-              id: `link-${linkIndex}-0-${Date.now()}`,
-              sourceUrl: linkInfo.sourceUrl,
-              mall: "G마켓",
-              productId: linkInfo.productId,
-              name,
-              rawName: name,
-              spec: "",
-              unit: "개",
-              quantity: 1,
-              unitPrice: safeNumber(payload.price, 0),
-              lookupStatus: String(payload.lookupStatus ?? "confirmation-required"),
-              confidence: Number(payload.confidence ?? 0),
-              priceSource: String(payload.source ?? "확인 필요"),
-              notes: Array.isArray(payload.notes) ? payload.notes.map(String) : ["원본 상품 화면을 보며 상품명과 예상단가를 확인하세요."],
-            } satisfies LinkDraft];
-          }
-
-          try {
-            const order = await analyzePublicShoppingLink(sourceUrl) as { mall?: string; items?: Array<Record<string, unknown>> };
-            return (order.items ?? []).map((row, itemIndex) => {
-              const warnings = Array.isArray(row._warnings) ? row._warnings.map(String) : [];
-              const name = String(row["내용"] ?? "");
-              return {
-                id: `link-${linkIndex}-${itemIndex}-${Date.now()}`,
-                sourceUrl,
-                mall: String(order.mall ?? new URL(sourceUrl).hostname.replace(/^www\./, "")),
-                productId: (order.items?.length ?? 0) > 1 ? `링크 ${linkIndex + 1} · 품목 ${itemIndex + 1}` : `상품 링크 ${linkIndex + 1}`,
-                name,
-                rawName: String(row._rawName ?? name),
-                spec: String(row["규격"] ?? ""),
-                unit: String(row["단위"] ?? "개"),
-                quantity: safeNumber(row["수량"], 1),
-                unitPrice: safeNumber(row["단가"], 0),
-                lookupStatus: "found",
-                confidence: warnings.length ? 0.65 : 0.8,
-                priceSource: "공개 상품 페이지",
-                notes: warnings.map((warning) => `${warning} ${warningText[warning] ?? "확인 필요"}`),
-              } satisfies LinkDraft;
-            });
-          } catch {
-            const host = new URL(sourceUrl).hostname.replace(/^www\./, "");
-            return [{
-              id: `link-${linkIndex}-0-${Date.now()}`,
-              sourceUrl,
-              mall: host,
-              productId: `상품 링크 ${linkIndex + 1}`,
-              name: "",
-              rawName: "",
-              spec: "",
-              unit: "개",
-              quantity: 1,
-              unitPrice: 0,
-              lookupStatus: "confirmation-required",
-              confidence: 0,
-              priceSource: "확인 필요",
-              notes: ["쇼핑몰이 공개 조회를 막았습니다. 원본을 보며 빈칸을 확인하세요."],
-            } satisfies LinkDraft];
-          }
-        }));
-        batch.forEach((drafts) => allDrafts.push(...drafts));
-      }
-      setLinkDrafts(allDrafts);
-      const ready = allDrafts.filter((draft) => draft.name && draft.unitPrice > 0).length;
-      setLinkKind(ready === allDrafts.length ? "success" : "needs-confirmation");
-      setLinkStatus(`${links.length}개 링크에서 ${allDrafts.length}개 상품 초안을 만들었어요. ${allDrafts.length - ready}개는 빈칸 확인이 필요합니다.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "링크를 읽지 못했습니다.";
-      setLinkKind("error");
-      setLinkStatus(message);
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) throw new Error("클립보드가 비어 있습니다.");
+      setPasteText(text);
+      setPasteKind("success");
+      setPasteStatus("클립보드 내용을 붙여넣었습니다. ‘품목 자동 작성’을 눌러 주세요.");
+    } catch {
+      setPasteKind("error");
+      setPasteStatus("입력칸을 누르고 Ctrl+V로 붙여넣어 주세요.");
     }
-  };
-
-  const updateLinkDraft = (id: string, patch: Partial<LinkDraft>) => {
-    setLinkDrafts((current) => current.map((draft) => draft.id === id ? { ...draft, ...patch } : draft));
-    setDraftError("");
-  };
-
-  const fillDraftFromProductScreen = async (draft: LinkDraft) => {
-    setDraftError("");
-    if (capturePreviewRef.current) URL.revokeObjectURL(capturePreviewRef.current);
-    capturePreviewRef.current = null;
-    setScreenCapture({
-      draftId: draft.id,
-      kind: "requesting",
-      message: "브라우저 창에서 상품이 열린 탭을 선택하고 ‘공유’를 눌러 주세요.",
-      previewUrl: null,
-    });
-    try {
-      const file = await captureSelectedProductScreen();
-      if (capturePreviewRef.current) URL.revokeObjectURL(capturePreviewRef.current);
-      const previewUrl = URL.createObjectURL(file);
-      capturePreviewRef.current = previewUrl;
-      setScreenCapture({ draftId: draft.id, kind: "recognizing", message: "화면 공유를 종료했어요. 상품명과 판매가를 읽고 있습니다…", previewUrl });
-      const order = await importImage(file, (progress: number, label: string) => {
-        setScreenCapture({ draftId: draft.id, kind: "recognizing", message: `${label} ${Math.round(progress * 100)}%`, previewUrl });
-      }) as { items?: Array<Record<string, unknown>> };
-      const candidate = chooseCapturedProductCandidate(order.items, draft.name);
-      updateLinkDraft(draft.id, {
-        name: candidate.name,
-        rawName: candidate.rawName,
-        unitPrice: candidate.unitPrice,
-        lookupStatus: "screen-captured",
-        confidence: 0.6,
-        priceSource: "선택한 상품 화면 OCR",
-        notes: [
-          `화면에서 ${candidate.candidateCount}개 가격 후보를 비교해 가장 가능성 높은 값을 채웠습니다.`,
-          "상품명·선택 옵션·판매가를 원본과 한 번 확인해 주세요.",
-        ],
-      });
-      setLinkKind("needs-confirmation");
-      setLinkStatus("상품 화면에서 상품명과 예상단가를 채웠어요. 선택 옵션과 판매가를 원본과 대조해 주세요.");
-      setScreenCapture({ draftId: draft.id, kind: "success", message: "상품명과 예상단가를 채웠어요. 원본 화면과 한 번만 대조해 주세요.", previewUrl });
-    } catch (error) {
-      const cancelled = error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "AbortError");
-      setScreenCapture({
-        draftId: draft.id,
-        kind: "error",
-        message: cancelled
-          ? "화면 선택이 취소됐어요. 다시 누른 뒤 G마켓 상품 탭을 선택해 주세요."
-          : error instanceof Error ? error.message : "상품 화면을 가져오지 못했습니다.",
-        previewUrl: capturePreviewRef.current,
-      });
-    }
-  };
-
-  const addLinkDrafts = () => {
-    if (!linkDrafts.length) return;
-    const invalidIndex = linkDrafts.findIndex((draft) => !draft.name.trim() || !Number.isInteger(draft.quantity) || draft.quantity < 1 || draft.unitPrice < 1);
-    if (invalidIndex >= 0) {
-      const draft = linkDrafts[invalidIndex];
-      const field = !draft.name.trim() ? "상품명" : draft.quantity < 1 ? "수량" : "예상단가";
-      setDraftError(`${invalidIndex + 1}번 상품의 ${field}을(를) 확인해 주세요.`);
-      return;
-    }
-    const budget = safeNumber(draftBudget, 0);
-    const error = applyOrder({
-      mall: linkDrafts.length > 1 ? "여러 쇼핑몰" : linkDrafts[0].mall,
-      stage: "pre-purchase",
-      budget,
-      paidTotal: null,
-      sourceUrl: linkDrafts[0].sourceUrl,
-      sourceUrls: linkDrafts.map((draft) => draft.sourceUrl),
-      orderNo: `상품 링크 ${linkDrafts.length}개`,
-      _warnings: [],
-      _extractedBy: "confirmed-link-list",
-      items: linkDrafts.map((draft) => ({
-        내용: draft.name.trim(),
-        규격: draft.spec.trim(),
-        단위: draft.unit.trim() || "개",
-        수량: draft.quantity,
-        단가: draft.unitPrice,
-        금액: draft.quantity * draft.unitPrice,
-        _rawName: draft.rawName || draft.name,
-        sourceUrl: draft.sourceUrl,
-        _warnings: [],
-        excluded: false,
-      })),
-    }, "상품 링크 목록");
-    if (error) { setDraftError(error); return; }
-    setLinkKind("success");
-    setLinkStatus(`${linkDrafts.length}개 상품을 구매 전 검수표에 추가했어요. 예산 한도와 예상 합계를 확인해 주세요.`);
-  };
-
-  const dragBookmarklet = (event: DragEvent<HTMLAnchorElement>) => {
-    if (!bookmarklet) return;
-    event.dataTransfer.setData("text/uri-list", bookmarklet);
-    event.dataTransfer.setData("text/plain", bookmarklet);
-    event.dataTransfer.effectAllowed = "copyLink";
-  };
-
-  const explainBookmarklet = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    setLinkKind("needs-confirmation");
-    setLinkStatus("현재 화면 보내기는 로그인 주문을 한꺼번에 가져올 때만 쓰는 고급 기능입니다.");
   };
 
   const saveReview = () => {
@@ -651,65 +376,20 @@ export default function ReviewApp() {
       {isImportOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={applyOrder} />}
       <header className="topbar">
         <a className="brand" href="#top" aria-label="견적정리 홈"><span className="brand-mark" aria-hidden="true">견</span><span>견적정리</span></a>
-        <div className="stepper" aria-label="진행 단계"><span className={`step ${hasItems ? "done" : "active"}`}><b>1</b> 링크·파일 불러오기</span><span className={`step ${hasItems ? "active" : ""}`}><b>2</b> 내용 확인·수정</span><span className="step"><b>3</b> 엑셀 다운로드</span><span className="step"><b>4</b> K-에듀파인 등록</span></div>
+        <div className="stepper" aria-label="진행 단계"><span className={`step ${hasItems ? "done" : "active"}`}><b>1</b> 주문 화면 붙여넣기</span><span className={`step ${hasItems ? "active" : ""}`}><b>2</b> 내용 확인·수정</span><span className="step"><b>3</b> 엑셀 다운로드</span><span className="step"><b>4</b> K-에듀파인 등록</span></div>
         <button className="ghost-button" type="button" onClick={() => setImportOpen(true)}>주문내역 가져오기</button>
       </header>
 
       <section className="workspace" id="top">
         <section className="quick-start" aria-labelledby="quick-start-title">
-          <div className="quick-start-copy"><span>STEP 1 · 구매 전 품의</span><h2 id="quick-start-title">상품 링크를 한 줄에 하나씩 붙여넣으세요</h2><p>최대 20개 링크의 상품명·공개 가격과 출처를 확인하고, 수량과 예산 한도만 검수합니다.</p></div>
-          <form className="link-import-form" onSubmit={(event) => { event.preventDefault(); void analyzeShoppingLink(); }}>
-            <label htmlFor="shopping-url">쇼핑몰 상품 링크 · 여러 개 가능</label>
-            <div><textarea id="shopping-url" value={shoppingUrl} onChange={(event) => { setShoppingUrl(event.target.value); setLinkDrafts([]); setDraftError(""); setLinkKind("idle"); setLinkStatus("상품 링크를 붙여넣으면 견적 초안을 만들어요."); }} placeholder={"https://…/상품1\nhttps://…/상품2"} rows={Math.min(Math.max(shoppingUrl.split(/\r?\n/).length, 2), 6)} autoComplete="url" /><button type="submit" disabled={!shoppingUrl.trim() || linkKind === "working"}>{linkKind === "working" ? "확인 중…" : "상품 초안 만들기"}</button></div>
+          <div className="quick-start-copy"><span>STEP 1 · 가장 쉬운 방법</span><h2 id="quick-start-title">주문 화면을 복사해 그대로 붙여넣으세요</h2><p>아이스크림몰·쿠팡·G마켓·YES24 주문 형식을 자동 구분하고, 여러 가격 중 최종 할인가를 사용합니다.</p></div>
+          <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
+            <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
+            <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
           </form>
-          <div className={`link-status ${linkKind}`} aria-live="polite"><span aria-hidden="true" />{linkStatus}</div>
-          {linkDrafts.some((draft) => !draft.name || draft.unitPrice < 1) && (
-            <div className="screen-capture-guide">
-              <span className="screen-capture-guide-icon" aria-hidden="true">▣</span>
-              <div><strong>G마켓처럼 링크 조회가 막혀도 화면에서 채울 수 있어요</strong><p>아래에서 <b>원본 화면 열기</b>로 상품을 띄운 뒤 <b>상품 화면 선택</b>을 누르고, 표시되는 창에서 그 상품 탭을 선택하세요.</p></div>
-              <em>설치 없음</em>
-            </div>
-          )}
-          {linkDrafts.length > 0 && (
-            <section className="link-draft-card" aria-labelledby="link-draft-title">
-              <div className="link-draft-heading">
-                <div><span className="mall-badge">상품 초안 · {linkDrafts.length}개</span><h3 id="link-draft-title">가격 출처와 빈칸만 확인해 주세요</h3><p>수량은 링크에 없으므로 1로 시작합니다. 실제 구입 수량과 선택 옵션 가격으로 수정하세요.</p></div>
-              </div>
-              <div className="link-draft-list">
-                {linkDrafts.map((draft, index) => (
-                  <article className="link-draft-item" key={draft.id} aria-labelledby={`link-draft-${index}`}>
-                    <div className="draft-item-heading"><div><span>{index + 1}</span><strong id={`link-draft-${index}`}>{draft.mall} · {draft.productId}</strong><em className={draft.confidence >= .8 ? "high" : draft.confidence >= .6 ? "medium" : "low"}>{draft.confidence ? `가격 신뢰도 ${Math.round(draft.confidence * 100)}%` : "직접 확인"}</em></div><div className="draft-item-actions"><a href={draft.sourceUrl} target="_blank" rel="noreferrer">원본 화면 열기 ↗</a><button type="button" onClick={() => void fillDraftFromProductScreen(draft)} disabled={screenCapture.kind === "requesting" || screenCapture.kind === "recognizing"}>{screenCapture.draftId === draft.id && (screenCapture.kind === "requesting" || screenCapture.kind === "recognizing") ? "읽는 중…" : "상품 화면 선택"}</button></div></div>
-                    {screenCapture.draftId === draft.id && screenCapture.kind !== "idle" && (
-                      <div className={`screen-capture-result ${screenCapture.kind}`} role="status" aria-live="polite">
-                        {screenCapture.previewUrl && <img src={screenCapture.previewUrl} alt="선택한 상품 화면 미리보기" />}
-                        <div><strong>{screenCapture.kind === "requesting" ? "1. 상품 탭 선택" : screenCapture.kind === "recognizing" ? "2. 상품 정보 자동 인식" : screenCapture.kind === "success" ? "3. 자동 채우기 완료" : "다시 시도해 주세요"}</strong><p>{screenCapture.message}</p></div>
-                      </div>
-                    )}
-                    <div className="link-draft-grid">
-                      <label className="draft-name">내용 <b>필수</b><input value={draft.name} onChange={(event) => updateLinkDraft(draft.id, { name: event.target.value })} placeholder="상품명을 입력하세요" /></label>
-                      <label>규격·옵션 <b>선택</b><input value={draft.spec} onChange={(event) => updateLinkDraft(draft.id, { spec: event.target.value })} placeholder="예: 250mL · 파란색" /></label>
-                      <label>단위 <b>필수</b><input value={draft.unit} onChange={(event) => updateLinkDraft(draft.id, { unit: event.target.value })} placeholder="개" /></label>
-                      <label>수량 <b>필수</b><input type="number" min="1" step="1" value={draft.quantity} onChange={(event) => updateLinkDraft(draft.id, { quantity: safeNumber(event.target.value, 1) })} /></label>
-                      <label>예상단가 <b>필수</b><span className="money-field"><input type="number" min="0" step="1" value={draft.unitPrice || ""} onChange={(event) => updateLinkDraft(draft.id, { unitPrice: safeNumber(event.target.value) })} placeholder="0" /><i>원</i></span></label>
-                      <div className="draft-amount"><span>예상금액</span><strong>{won(draft.quantity * draft.unitPrice)}원</strong></div>
-                    </div>
-                    <div className="draft-provenance"><span>가격 출처 · {draft.priceSource}</span>{draft.notes.map((note) => <p key={note}>{note}</p>)}</div>
-                  </article>
-                ))}
-              </div>
-              <div className="link-draft-footer">
-                <label className="draft-budget">예산 한도 <b>선택</b><span className="money-field"><input type="number" min="0" step="1" value={draftBudget} onChange={(event) => { setDraftBudget(event.target.value); setDraftError(""); }} placeholder="예: 300000" /><i>원</i></span></label>
-                <div><span>예상 합계</span><strong>{won(draftTotal)}원</strong><small>{draftBudget && safeNumber(draftBudget) < draftTotal ? `예산보다 ${won(draftTotal - safeNumber(draftBudget))}원 초과` : "수량 × 예상단가"}</small></div>
-                <button type="button" onClick={addLinkDrafts}>확인한 {linkDrafts.length}개를 검수표에 추가</button>
-              </div>
-              {draftError && <p className="draft-error" role="alert">{draftError}</p>}
-            </section>
-          )}
-          <div className="quick-start-fallback"><span>여러 상품이 있는 장바구니·주문이라면</span><button type="button" onClick={() => setImportOpen(true)}>PDF·엑셀·캡처 올리기</button><button type="button" onClick={() => setImportOpen(true)}>주문 화면 직접 붙여넣기</button></div>
-          <details className="advanced-link-tool">
-            <summary>고급 기능 · 로그인 주문 화면을 한꺼번에 가져오기</summary>
-            <div><p>여러 상품을 파일로 받을 수 없을 때만 사용합니다. 북마크바 등록이 필요하므로 일반 상품 링크에는 위의 ‘상품 초안 만들기’를 권장합니다.</p><div className="login-link-actions"><a className={!normalizedShoppingUrl ? "disabled" : ""} href={normalizedShoppingUrl || "#"} target={normalizedShoppingUrl ? "_blank" : undefined} rel="noreferrer" onClick={(event) => { if (!normalizedShoppingUrl) event.preventDefault(); }}>쇼핑몰 링크 열기</a><a ref={bookmarkRef} className="bookmarklet-button" href="#" draggable onDragStart={dragBookmarklet} onClick={explainBookmarklet}>현재 화면 보내기 ↗</a></div></div>
-          </details>
+          <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
+          <div className="paste-primary-actions"><button type="button" onClick={() => void pasteFromClipboard()}>클립보드에서 붙여넣기</button><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
+          <div className="quick-start-fallback"><span>다른 자료가 있다면</span><button type="button" onClick={() => setImportOpen(true)}>PDF·엑셀·캡처·직접 입력</button></div>
         </section>
         {hasItems ? <>
         <div className="page-heading">
@@ -775,7 +455,7 @@ export default function ReviewApp() {
           <section className="empty-review" aria-label="불러온 품목 없음">
             <span className="empty-review-icon" aria-hidden="true">▤</span>
             <h2>아직 불러온 품목이 없어요</h2>
-            <p>위에 상품 링크를 한 줄에 하나씩 붙여넣거나 PDF, 엑셀 견적서, 장바구니 캡처를 올려 주세요.</p>
+            <p>위 입력칸에 주문 화면 전체를 붙여넣거나 PDF, 엑셀 견적서, 장바구니 캡처를 올려 주세요.</p>
             <button type="button" onClick={() => setImportOpen(true)}>파일이나 주문 화면으로 시작하기</button>
           </section>
         )}
@@ -783,11 +463,11 @@ export default function ReviewApp() {
         <section className="help-stack" aria-label="가져오기 도움말">
           <details>
             <summary><span>정확하게 가져오는 권장 순서</span><b>+</b></summary>
-            <div><p><strong>후보 상품</strong> 최대 20개 링크를 한 줄에 하나씩 붙여넣고 가격 출처·신뢰도·수량을 확인합니다.</p><p><strong>장바구니</strong> 쇼핑몰에서 내려받은 엑셀·PDF를 올립니다. 파일이 없으면 글자를 크게 확대한 장바구니 캡처를 사용하세요.</p><p><strong>예산 확인</strong> 구매 전에는 결제 총액이 없어도 오류가 아닙니다. 예산 한도를 입력하면 <strong>V15</strong>로 초과 여부를 확인합니다.</p></div>
+            <div><p><strong>기본 방법</strong> 쇼핑몰 주문 화면에서 전체 선택 후 복사하고, 첫 입력칸에 그대로 붙여넣습니다.</p><p><strong>파일 자료</strong> 쇼핑몰에서 내려받은 엑셀·PDF가 있으면 보조 방법으로 올릴 수 있습니다.</p><p><strong>최종 확인</strong> 노란 표시가 있는 수량·예상단가만 원본 주문과 대조합니다.</p></div>
           </details>
           <details>
-            <summary><span>왜 주문 화면 붙여넣기는 보조 기능인가요?</span><b>+</b></summary>
-            <div><p>복사된 텍스트에는 상품 카드의 경계와 ‘단가·합계’ 의미가 사라질 수 있습니다. 그래서 수량이나 가격 기준을 확인할 수 없는 값은 <strong>V04·V11</strong>로 표시하고, 확인 전에는 엑셀 생성을 막습니다.</p></div>
+            <summary><span>붙여넣은 뒤 무엇을 확인하나요?</span><b>+</b></summary>
+            <div><p>정가·쿠폰·할인율·적립금·판매자·배송상태는 상품명에서 제외합니다. 수량이나 최종 할인가를 확정할 수 없는 값만 <strong>V04·V11</strong>로 표시합니다.</p></div>
           </details>
           <details>
             <summary><span>K-에듀파인 등록 전 확인</span><b>+</b></summary>

@@ -68,14 +68,12 @@ function csvToOrder(text: string, filename: string) {
 }
 
 export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
-  const [mode, setMode] = useState<ImportMode>("file");
-  const [status, setStatus] = useState("쇼핑몰에서 내려받은 PDF·엑셀 견적서가 가장 정확해요.");
+  const [mode, setMode] = useState<ImportMode>("paste");
+  const [status, setStatus] = useState("주문 화면을 복사해 붙여넣는 방법이 기본입니다.");
   const [statusKind, setStatusKind] = useState<"idle" | "working" | "success" | "error">("idle");
   const [pasteText, setPasteText] = useState("");
-  const [pasteUrl, setPasteUrl] = useState("");
   const [pasteTotal, setPasteTotal] = useState("");
   const [mall, setMall] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
   const [orderNo, setOrderNo] = useState("");
   const [paidTotal, setPaidTotal] = useState("");
   const [manualRows, setManualRows] = useState("");
@@ -115,16 +113,9 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
     }, 1600);
   };
 
-  const validateUrl = (value: string) => {
-    if (!value) return;
-    const parsed = new URL(value);
-    if (!/^https?:$/.test(parsed.protocol)) throw new Error("원본 링크는 http 또는 https 주소여야 합니다.");
-  };
-
   const importPastedOrder = () => {
     try {
-      validateUrl(pasteUrl);
-      const order = parseOrderText(pasteText, { sourceUrl: pasteUrl, paidTotal: pasteTotal });
+      const order = parseOrderText(pasteText, { paidTotal: pasteTotal });
       const importError = onImport(order, "붙여넣은 주문 화면");
       if (importError) throw new Error(importError);
     } catch (error) {
@@ -208,9 +199,8 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
         };
       });
       if (!rows.length) throw new Error("[V01] 품목을 한 줄 이상 입력해 주세요.");
-      validateUrl(sourceUrl);
       const importError = onImport({
-        mall: mall || "직접 입력", sourceUrl: sourceUrl || undefined, orderNo: orderNo || undefined,
+        mall: mall || "직접 입력", orderNo: orderNo || undefined,
         capturedAt: new Date().toISOString(),
         paidTotal: Number(paidTotal.replace(/[^\d.-]/g, "")) || rows.reduce((sum, row) => sum + row.금액, 0),
         _warnings: paidTotal ? [] : ["V08"], _extractedBy: "manual", items: rows,
@@ -231,8 +221,8 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
         </div>
 
         <div className="import-tabs four-tabs" role="tablist" aria-label="불러오기 방법">
-          <button className={mode === "file" ? "active" : ""} type="button" role="tab" aria-selected={mode === "file"} onClick={() => setMode("file")}><span className="recommended-dot" />문서·사진</button>
-          <button className={mode === "paste" ? "active" : ""} type="button" role="tab" aria-selected={mode === "paste"} onClick={() => setMode("paste")}>텍스트 붙여넣기</button>
+          <button className={mode === "paste" ? "active" : ""} type="button" role="tab" aria-selected={mode === "paste"} onClick={() => setMode("paste")}><span className="recommended-dot" />텍스트 붙여넣기</button>
+          <button className={mode === "file" ? "active" : ""} type="button" role="tab" aria-selected={mode === "file"} onClick={() => setMode("file")}>문서·사진</button>
           <button className={mode === "browser" ? "active" : ""} type="button" role="tab" aria-selected={mode === "browser"} onClick={() => setMode("browser")}>도우미</button>
           <button className={mode === "manual" ? "active" : ""} type="button" role="tab" aria-selected={mode === "manual"} onClick={() => setMode("manual")}>직접 입력</button>
         </div>
@@ -245,7 +235,6 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
               <p>상품명·옵션·수량·최종 할인가를 묶어 읽습니다. 정가·할인율·쿠폰·적립금·판매자·배송상태는 상품명에서 제외하고, 금액이 있는 배송비는 별도 품목으로 만듭니다.</p>
               <textarea className="paste-area" value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={"여기를 누르고 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 최종 할인가 · 배송비가 포함된 주문 화면"} rows={7} />
               <div className="paste-meta-grid">
-                <label>원본 주소 <span>선택</span><input type="url" value={pasteUrl} onChange={(event) => setPasteUrl(event.target.value)} placeholder="https://…" /></label>
                 <label>결제 총액 <span>못 찾을 때만</span><input inputMode="numeric" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label>
               </div>
               <div className="paste-actions">
@@ -288,7 +277,6 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
             <div className="manual-grid">
               <label>쇼핑몰 이름<input value={mall} onChange={(event) => setMall(event.target.value)} placeholder="예: 쿠팡" /></label>
               <label>주문번호<input value={orderNo} onChange={(event) => setOrderNo(event.target.value)} placeholder="선택 입력" /></label>
-              <label className="wide-field">원본 주문 링크<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://… (추적용)" /></label>
               <label>결제 총액<input inputMode="numeric" value={paidTotal} onChange={(event) => setPaidTotal(event.target.value)} placeholder="예: 77800" /></label>
               <label className="wide-field">품목 붙여넣기<textarea value={manualRows} onChange={(event) => setManualRows(event.target.value)} placeholder={"내용 | 규격 | 단위 | 수량 | 예상단가\n비커 250mL | 붕규산 유리 | 개 | 20 | 2400"} rows={5} /></label>
             </div>

@@ -89,6 +89,13 @@ button { cursor: pointer; }
 .link-import-form textarea { min-width: 0; padding: 11px 12px; border: 0; outline: none; resize: vertical; background: transparent; color: var(--ink); font: 13px/1.55 var(--font-geist-sans), sans-serif; }
 .link-import-form button { min-width: 148px; border: 1px solid var(--green-dark); border-radius: 9px; background: var(--green); color: #fff; font-size: 12px; font-weight: 850; }
 .link-import-form button:disabled { cursor: not-allowed; opacity: .48; }
+.paste-import-form > div { align-items: stretch; }
+.paste-import-form textarea { min-height: 166px; font-family: var(--font-geist-mono), monospace; }
+.paste-primary-actions { display: flex; align-items: flex-end; gap: 10px; margin-top: 11px; }
+.paste-primary-actions > button { min-height: 38px; padding: 0 12px; border: 1px solid #bfd1c5; border-radius: 8px; background: #fff; color: #476355; font-size: 10px; font-weight: 850; }
+.paste-primary-actions label { display: grid; gap: 5px; color: #64736b; font-size: 9px; font-weight: 850; }
+.paste-primary-actions label span { color: #9aa59f; font-weight: 650; }
+.paste-primary-actions input { width: 180px; height: 38px; padding: 0 10px; border: 1px solid #ced9d2; border-radius: 8px; background: #fff; color: var(--ink); text-align: right; }
 .link-status { min-height: 34px; display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.58); color: #6d7b73; font-size: 10px; font-weight: 700; }
 .link-status > span { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #91a199; }
 .link-status.working > span { background: #dea13a; animation: pulse 1s ease-in-out infinite; }
@@ -390,6 +397,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(216,242,122,
   .quick-start { padding: 21px; }
   .link-import-form > div { grid-template-columns: 1fr; gap: 6px; }
   .link-import-form button { min-height: 42px; }
+  .paste-primary-actions { align-items: stretch; flex-direction: column; }
+  .paste-primary-actions input { width: 100%; }
   .link-draft-card { padding: 16px; }
   .link-draft-heading { flex-direction: column; gap: 12px; }
   .draft-item-heading { align-items: flex-start; }
