@@ -101,7 +101,7 @@ button { cursor: pointer; }
 .shopping-order-guide { display: flex; align-items: baseline; gap: 10px; margin-bottom: 11px; }
 .shopping-order-guide strong { color: #2f5646; font-size: 12px; }
 .shopping-order-guide span { color: #78867f; font-size: 10px; }
-.shopping-order-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.shopping-order-list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .shopping-order-list a { min-width: 0; display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 10px 11px; border: 1px solid #d3ddd6; border-radius: 10px; background: #fff; color: var(--ink); text-decoration: none; transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
 .shopping-order-list a:hover { border-color: #8eb6a2; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(23,48,39,.07); }
 .shopping-order-list b { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -141,6 +141,18 @@ button { cursor: pointer; }
 .pdf-save-steps mark { padding: 1px 3px; border-radius: 3px; background: #e4f2e8; color: #2e684e; font-weight: 850; }
 .pdf-save-tip { display: flex; align-items: center; gap: 7px; margin: 11px 0 0; color: #7d8983; font-size: 9px; line-height: 1.5; }
 .pdf-save-tip > span { width: 17px; height: 17px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #e9eeeb; color: #5e7267; font-size: 8px; font-weight: 900; }
+.paper-scan-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; margin-top: 15px; }
+.paper-scan-method { min-width: 0; padding: 15px; border: 1px solid #dbe5de; border-radius: 12px; background: #fbfcfa; }
+.paper-method-heading { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 9px; padding-bottom: 11px; border-bottom: 1px solid #e3e9e5; }
+.paper-method-heading > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 9px; background: var(--green); color: #fff; font-size: 10px; font-weight: 950; }
+.paper-method-heading h4 { margin: 0; color: #344d42; font-size: 12px; letter-spacing: -.025em; }
+.paper-method-heading p { margin: 3px 0 0; color: #839089; font-size: 8px; }
+.paper-method-steps { display: grid; gap: 8px; margin: 11px 0 0; padding: 0; list-style: none; }
+.paper-method-steps li { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; }
+.paper-method-steps li > b { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; background: #e4efe8; color: var(--green); font-size: 8px; }
+.paper-method-steps strong { color: #495e54; font-size: 9px; }
+.paper-method-steps p { margin: 3px 0 0; color: #7e8a84; font-size: 8px; line-height: 1.55; }
+.paper-method-steps mark { padding: 1px 3px; border-radius: 3px; background: #e4f2e8; color: #2e684e; font-weight: 850; }
 .paper-checklist { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e7e2; color: #61736a; font-size: 9px; }
 .paper-checklist strong { margin-right: 2px; color: #354f43; font-size: 10px; }
 .paper-checklist span { padding: 5px 7px; border-radius: 999px; background: #edf4ef; }
@@ -479,6 +491,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .quick-file-zone small { max-width: 240px; line-height: 1.5; text-align: center; }
   .pdf-save-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
   .pdf-save-steps { grid-template-columns: 1fr; }
+  .paper-scan-methods { grid-template-columns: 1fr; }
   .quick-file-priority { align-items: flex-start; flex-direction: column; }
   .quick-file-priority i { display: none; }
   .quick-start-more { align-items: stretch; flex-direction: column; }

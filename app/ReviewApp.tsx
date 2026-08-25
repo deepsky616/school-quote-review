@@ -49,6 +49,7 @@ const shoppingOrderLinks = [
   { name: "G마켓", href: "https://myg.gmarket.co.kr/", hint: "나의 쇼핑정보" },
   { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "마이페이지" },
   { name: "11번가", href: "https://www.11st.co.kr/", hint: "주문·배송조회" },
+  { name: "만안문구센터", href: "https://www.mananmungu.co.kr/mall/index.php", hint: "장바구니·주문내역 PDF" },
 ];
 
 const warningText: Record<string, string> = {
@@ -417,7 +418,7 @@ export default function ReviewApp() {
               <span className="method-tab-index" aria-hidden="true">2</span><span><b>PDF 문서</b><small>복사가 안 되는 쇼핑몰 · 주문 화면 PDF</small></span><em>대안</em>
             </button>
             <button id="paper-method-tab" className={quickStartMode === "paper" ? "active" : ""} type="button" role="tab" aria-selected={quickStartMode === "paper"} aria-controls="paper-method-panel" onClick={() => setQuickStartMode("paper")}>
-              <span className="method-tab-index" aria-hidden="true">3</span><span><b>종이 견적서·영수증</b><small>휴대폰 문서 스캔 · 문자 인식 PDF</small></span><em>스캔</em>
+              <span className="method-tab-index" aria-hidden="true">3</span><span><b>종이 견적서·영수증</b><small>휴대폰·프린터/복합기 스캔 · 문자 인식 PDF</small></span><em>스캔</em>
             </button>
           </div>
 
@@ -456,14 +457,27 @@ export default function ReviewApp() {
             <div className="quick-start-panel paper-document-panel" id="paper-method-panel" role="tabpanel" aria-labelledby="paper-method-tab">
               <div className="quick-file-guidance"><span aria-hidden="true">✓</span><div><strong>일반 사진보다 ‘문서 스캔 + 문자 인식(OCR) PDF’가 가장 정확합니다</strong><p>종이를 평평하게 펴고 표 전체가 한 화면에 들어오게 스캔하면 상품명·판매단가·수량·합계를 더 정확히 구분할 수 있습니다.</p></div></div>
               <div className="pdf-save-guide" aria-labelledby="paper-scan-title">
-                <div className="pdf-save-heading"><div><span>종이 문서 권장 방법</span><h3 id="paper-scan-title">휴대폰으로 검색 가능한 PDF 만들기</h3></div><em>견적서 · 영수증 · 거래명세서</em></div>
-                <ol className="pdf-save-steps paper-scan-steps">
-                  <li><b>1</b><div><strong>종이를 평평하게 놓기</strong><p>그림자·구김·빛 반사를 없애고, 네 모서리와 모든 품목 행이 보이게 놓으세요.</p></div></li>
-                  <li><b>2</b><div><strong>휴대폰의 ‘문서 스캔’ 사용</strong><p>기본 문서 스캔이나 스캔 앱에서 자동 테두리 보정과 <mark>문자 인식(OCR)</mark>을 켜세요.</p></div></li>
-                  <li><b>3</b><div><strong>파일 형식을 PDF로 저장</strong><p>여러 장은 한 PDF로 묶고, 가능하면 300dpi·원본 크기로 저장하세요. JPG 사진은 올리지 않습니다.</p></div></li>
-                </ol>
+                <div className="pdf-save-heading"><div><span>종이 문서 권장 방법</span><h3 id="paper-scan-title">검색 가능한 PDF 만드는 방법</h3></div><em>견적서 · 영수증 · 거래명세서</em></div>
+                <div className="paper-scan-methods">
+                  <section className="paper-scan-method" aria-labelledby="phone-scan-title">
+                    <div className="paper-method-heading"><span aria-hidden="true">A</span><div><h4 id="phone-scan-title">휴대폰으로 문서 스캔</h4><p>한두 장을 빠르게 만들 때</p></div></div>
+                    <ol className="paper-method-steps">
+                      <li><b>1</b><div><strong>종이를 평평하고 밝게 놓기</strong><p>그림자·구김·빛 반사를 없애고 네 모서리와 모든 품목 행이 보이게 놓으세요.</p></div></li>
+                      <li><b>2</b><div><strong>휴대폰의 ‘문서 스캔’ 사용</strong><p>자동 테두리 보정과 <mark>문자 인식(OCR)</mark>을 켜세요.</p></div></li>
+                      <li><b>3</b><div><strong>PDF로 저장</strong><p>여러 장은 한 PDF로 묶고 가능하면 300dpi·원본 크기로 저장하세요.</p></div></li>
+                    </ol>
+                  </section>
+                  <section className="paper-scan-method" aria-labelledby="printer-scan-title">
+                    <div className="paper-method-heading"><span aria-hidden="true">B</span><div><h4 id="printer-scan-title">프린터·복합기로 스캔</h4><p>여러 장이나 표 문서에 권장</p></div></div>
+                    <ol className="paper-method-steps">
+                      <li><b>1</b><div><strong>원고대 또는 자동급지대에 놓기</strong><p>영수증·구겨진 종이는 원고대 유리에, 평평한 여러 장은 자동급지대(ADF)에 방향을 맞춰 넣으세요.</p></div></li>
+                      <li><b>2</b><div><strong>스캔 설정 선택</strong><p>프린터나 PC의 스캔 메뉴에서 파일 형식 <mark>PDF</mark>, 해상도 <mark>300dpi</mark>, 문서 크기 A4 또는 자동을 선택하세요.</p></div></li>
+                      <li><b>3</b><div><strong>OCR를 켜고 한 파일로 저장</strong><p><mark>검색 가능한 PDF</mark>·텍스트 인식·OCR 중 하나를 켜고, 여러 페이지를 한 PDF로 저장하세요.</p></div></li>
+                    </ol>
+                  </section>
+                </div>
                 <div className="paper-checklist"><strong>업로드 전 확인</strong><span>제품명·판매단가·수량·합계가 선명함</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
-                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 사진을 단순히 PDF로 인쇄한 파일은 글자가 검색되지 않을 수 있습니다. 반드시 문자 인식(OCR)을 사용하세요.</p>
+                <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기 화면에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요. 사진을 단순히 PDF로 바꾼 파일은 정확도가 낮습니다.</p>
               </div>
               <button className="paper-upload-action" type="button" onClick={() => setQuickStartMode("file")}>만든 PDF 업로드하기 <span aria-hidden="true">→</span></button>
             </div>

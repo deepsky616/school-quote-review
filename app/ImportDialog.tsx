@@ -248,13 +248,27 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
         {mode === "paper" && (
           <div className="import-panel" role="tabpanel">
             <div className="pdf-save-guide modal-paper-guide">
-              <div className="pdf-save-heading"><div><span>가장 정확한 스캔 방법</span><h3>종이 문서를 문자 인식 PDF로 만드세요</h3></div><em>사진 파일 업로드 안 함</em></div>
-              <ol className="pdf-save-steps paper-scan-steps">
-                <li><b>1</b><div><strong>평평하고 밝게 놓기</strong><p>표 전체와 네 모서리가 보이도록 하고 그림자·반사를 피하세요.</p></div></li>
-                <li><b>2</b><div><strong>‘문서 스캔’으로 촬영</strong><p>자동 테두리 보정과 <mark>문자 인식(OCR)</mark>을 켜세요.</p></div></li>
-                <li><b>3</b><div><strong>한 개의 PDF로 저장</strong><p>여러 장을 합치고 300dpi 또는 원본 크기로 저장하세요.</p></div></li>
-              </ol>
+              <div className="pdf-save-heading"><div><span>가장 정확한 스캔 방법</span><h3>휴대폰 또는 프린터·복합기로 PDF를 만드세요</h3></div><em>사진 파일 업로드 안 함</em></div>
+              <div className="paper-scan-methods">
+                <section className="paper-scan-method" aria-label="휴대폰 스캔 방법">
+                  <div className="paper-method-heading"><span aria-hidden="true">A</span><div><h4>휴대폰 문서 스캔</h4><p>자동 테두리 보정과 OCR 사용</p></div></div>
+                  <ol className="paper-method-steps">
+                    <li><b>1</b><div><strong>평평하고 밝게 놓기</strong><p>표 전체와 네 모서리가 보이게 하세요.</p></div></li>
+                    <li><b>2</b><div><strong>‘문서 스캔’ 선택</strong><p>자동 보정과 <mark>문자 인식(OCR)</mark>을 켜세요.</p></div></li>
+                    <li><b>3</b><div><strong>한 PDF로 저장</strong><p>여러 장을 합치고 300dpi 또는 원본 크기로 저장하세요.</p></div></li>
+                  </ol>
+                </section>
+                <section className="paper-scan-method" aria-label="프린터 복합기 스캔 방법">
+                  <div className="paper-method-heading"><span aria-hidden="true">B</span><div><h4>프린터·복합기 스캔</h4><p>원고대 또는 자동급지대 사용</p></div></div>
+                  <ol className="paper-method-steps">
+                    <li><b>1</b><div><strong>종이 넣기</strong><p>영수증은 원고대에, 여러 장은 자동급지대(ADF)에 넣으세요.</p></div></li>
+                    <li><b>2</b><div><strong>PDF·300dpi 선택</strong><p>프린터나 PC 스캔 메뉴에서 PDF와 300dpi를 선택하세요.</p></div></li>
+                    <li><b>3</b><div><strong>OCR 후 한 파일 저장</strong><p>검색 가능한 PDF·텍스트 인식을 켜고 여러 페이지를 한 파일로 저장하세요.</p></div></li>
+                  </ol>
+                </section>
+              </div>
               <div className="paper-checklist"><strong>저장 후 확인</strong><span>상품명·단가·수량·합계가 선명함</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
+              <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요.</p>
             </div>
             <button className="dialog-primary paper-dialog-action" type="button" onClick={() => setMode("file")}>만든 PDF 선택하기 <span aria-hidden="true">→</span></button>
           </div>

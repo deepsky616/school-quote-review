@@ -82,6 +82,10 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /id="paper-method-tab"/);
   assert.match(review, /종이 견적서·영수증/);
   assert.match(review, /문자 인식\(OCR\) PDF/);
+  assert.match(review, /프린터·복합기로 스캔/);
+  assert.match(review, /자동급지대\(ADF\)/);
+  assert.match(review, /해상도 <mark>300dpi<\/mark>/);
+  assert.match(review, /검색 가능한 PDF/);
   assert.match(review, /만든 PDF 업로드하기/);
   assert.match(review, /만안문구처럼 주문 화면을 복사할 수 없을 때/);
   assert.match(review, /주문 화면을 PDF로 저장하는 방법/);
@@ -100,6 +104,8 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /https:\/\/myg\.gmarket\.co\.kr\//);
   assert.match(review, /https:\/\/www\.yes24\.com\/Member\/FTMypageMain\.aspx/);
   assert.match(review, /https:\/\/www\.11st\.co\.kr\//);
+  assert.match(review, /https:\/\/www\.mananmungu\.co\.kr\/mall\/index\.php/);
+  assert.match(review, /장바구니·주문내역 PDF/);
   assert.match(review, /자동 수집하지 않습니다/);
   assert.doesNotMatch(review, /상품 링크를 한 줄에 하나씩|상품 초안 만들기|현재 화면 보내기|getDisplayMedia/);
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
@@ -107,6 +113,9 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(dialog, /정가·할인율·쿠폰·적립금·판매자·배송상태/);
   assert.match(dialog, /주문내역 PDF 선택/);
   assert.match(dialog, /종이 견적서·영수증/);
+  assert.match(dialog, /프린터·복합기 스캔/);
+  assert.match(dialog, /PDF·300dpi 선택/);
+  assert.match(dialog, /자동급지대\(ADF\)/);
   assert.match(dialog, /만든 PDF 선택하기/);
   assert.match(dialog, /chrome:\/\/extensions/);
   assert.match(dialog, /edge:\/\/extensions/);
