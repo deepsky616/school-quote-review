@@ -181,6 +181,33 @@ test("일반 주문 텍스트의 유료 배송비도 내용 배송비인 별도 
   assert.equal(shipping.금액, 3500);
 });
 
+test("배송 안내는 HTML 공백을 지우고 가장 오른쪽의 무료배송·배송비 결과를 적용한다", () => {
+  const order = parseOrderText([
+    "G마켓 https://www.gmarket.co.kr/",
+    "오리온 카스타드12P",
+    "수량1개",
+    "상품 금액 :5,680원",
+    "15,000원 이상 구매시 배송비 무료무료배송 &#x20;",
+    "30공 바인더 제본 A4 PP 타공 표지 반투명 50매",
+    "수량1개",
+    "상품 금액 :14,370원",
+    "50,000원 이상 구매시 배송비 무료3,000원 &#x20;",
+  ].join("\n"));
+
+  assert.deepEqual(order.items.map((item) => item.내용), [
+    "오리온 카스타드12P",
+    "30공 바인더 제본 A4 PP 타공 표지 반투명 50매",
+    "배송비",
+  ]);
+  const shipping = order.items.at(-1);
+  assert.equal(shipping.규격, "50,000원 이상 구매 시 무료");
+  assert.equal(shipping.단위, "건");
+  assert.equal(shipping.수량, 1);
+  assert.equal(shipping.단가, 3000);
+  assert.equal(shipping.금액, 3000);
+  assert.equal(order.items.some((item) => item.단가 === 15000 || item.단가 === 50000), false);
+});
+
 test("합배송 스크랩은 브랜드·상품명을 묶고 표시 금액을 수량으로 나눈다", () => {
   const order = parseOrderText([
     "문교",

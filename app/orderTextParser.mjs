@@ -18,6 +18,7 @@ const moneyValues = (line) => {
 };
 
 const cleanScrapedLine = (value) => String(value ?? "")
+  .replace(/(?:&#x0*20;|&#0*32;|&nbsp;)/gi, " ")
   .replace(/\*\*/g, "")
   .replace(/^\\\s*$/, "")
   .replace(/\\_/g, "_")
@@ -58,10 +59,13 @@ const makeItem = ({ name, spec = "", unit = "개", quantity = 1, amount, sourceU
 
 const shippingItemFromLine = (line, sourceUrl) => {
   if (!/배송비/i.test(line)) return null;
-  const values = moneyValues(line);
-  const shippingPrice = values[values.length - 1] ?? 0;
+  const cleaned = cleanScrapedLine(line);
+  const outcomes = [...cleaned.matchAll(/무료\s*배송|[\d,]+\s*원/gi)];
+  const rightmostOutcome = outcomes.at(-1)?.[0] ?? "";
+  if (/무료\s*배송/i.test(rightmostOutcome)) return null;
+  const shippingPrice = toNumber(rightmostOutcome);
   if (!shippingPrice) return null;
-  const threshold = line.match(/([\d,]+)\s*원\s*이상\s*(?:구매\s*시\s*)?배송비\s*무료/i);
+  const threshold = cleaned.match(/([\d,]+)\s*원\s*이상\s*(?:구매\s*시\s*)?배송비\s*무료/i);
   return makeItem({
     name: "배송비",
     spec: threshold ? `${threshold[1]}원 이상 구매 시 무료` : "",
@@ -69,7 +73,7 @@ const shippingItemFromLine = (line, sourceUrl) => {
     quantity: 1,
     amount: shippingPrice,
     sourceUrl,
-    raw: line,
+    raw: cleaned,
   });
 };
 
