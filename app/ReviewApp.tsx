@@ -397,9 +397,8 @@ export default function ReviewApp() {
     <main className="app-shell">
       {isImportOpen && <ImportDialog onClose={() => setImportOpen(false)} onImport={applyOrder} />}
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="견적정리 홈"><span className="brand-mark" aria-hidden="true">견</span><span>견적정리</span></a>
+        <a className="brand" href="#top" aria-label="에듀파인 품의내역 생성기 홈"><span className="brand-mark" aria-hidden="true">에</span><span>에듀파인 품의내역 생성기</span></a>
         <div className="stepper" aria-label="진행 단계"><span className={`step ${hasItems ? "done" : "active"}`}><b>1</b> 주문내역 가져오기</span><span className={`step ${hasItems ? "active" : ""}`}><b>2</b> 내용 확인·수정</span><span className="step"><b>3</b> 엑셀 다운로드</span><span className="step"><b>4</b> K-에듀파인 등록</span></div>
-        <button className="ghost-button" type="button" onClick={() => setImportOpen(true)}>주문내역 가져오기</button>
       </header>
 
       <section className="workspace" id="top">
@@ -559,7 +558,7 @@ export default function ReviewApp() {
 
           <div className="card-footer">
             <p><span aria-hidden="true">ⓘ</span> 내부 품의·정리용입니다. 원본 증빙은 별도로 보관해 주세요.</p>
-            <div className="footer-actions"><button className="primary-button" type="button" onClick={createEstimate} disabled={hasBlock || totals.included.length === 0}>견적서 생성 <span aria-hidden="true">→</span></button></div>
+            <div className="footer-actions"><button className="primary-button" type="button" onClick={createEstimate} disabled={hasBlock || totals.included.length === 0}>품목내역 엑셀 파일 생성 <span aria-hidden="true">→</span></button></div>
           </div>
         </div>
         </> : (

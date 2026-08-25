@@ -29,7 +29,7 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /견적정리/);
+  assert.match(html, /에듀파인 품의내역 생성기/);
   assert.match(html, /주문내역을 가져오는 방법을 선택하세요/);
   assert.match(html, /주문 화면 복사·붙이기/);
   assert.match(html, /PDF 문서/);
@@ -64,6 +64,9 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   assert.match(source, /품목 추가/);
   assert.match(source, /const removeItem = \(id: string\) =>/);
   assert.match(source, /행 삭제/);
+  assert.match(source, /품목내역 엑셀 파일 생성/);
+  assert.doesNotMatch(source, />견적서 생성 </);
+  assert.doesNotMatch(source, /className="ghost-button" type="button" onClick=\{\(\) => setImportOpen\(true\)\}>주문내역 가져오기<\/button>/);
   assert.match(source, /V15: "예산 한도 초과"/);
   assert.match(source, /blockingRules = new Set\(\["V01", "V02", "V04", "V05", "V07", "V11", "V12", "V15"\]\)/);
   assert.match(source, /stage === "pre-purchase"/);

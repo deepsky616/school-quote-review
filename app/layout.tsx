@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host") ?? "localhost:3000";
   const protocol = headerStore.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const base = new URL(`${protocol}://${host}`);
-  const title = "견적정리 — 학교 견적서 검수";
+  const title = "에듀파인 품의내역 생성기";
   const description = "쇼핑몰 주문 내역을 검수하고 학교 견적서로 정리하는 안전한 도구";
 
   return {
@@ -33,7 +33,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: new URL("/og.png", base).toString(), width: 1740, height: 900, alt: "견적정리 — 주문 내역을 학교 견적서로 안전하게" }],
+      images: [{ url: new URL("/og.png", base).toString(), width: 1740, height: 900, alt: "에듀파인 품의내역 생성기 — 주문 내역을 학교 품의내역으로 안전하게" }],
     },
     twitter: {
       card: "summary_large_image",
