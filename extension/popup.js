@@ -1,4 +1,4 @@
-const APP_URL = "https://school-quote-review.climbing1126.chatgpt.site";
+const APP_URL = "https://deepsky616.github.io/school-quote-review/";
 const captureButton = document.querySelector("#capture");
 const status = document.querySelector("#status");
 
@@ -15,11 +15,12 @@ captureButton.addEventListener("click", async () => {
     if (!tab?.id || !/^https?:/.test(tab.url ?? "")) {
       throw new Error("쇼핑몰의 주문내역 웹페이지에서 실행해 주세요.");
     }
-    const [injection] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["extractor.js"] });
+    const [injection] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["extractor.js"] });
     const payload = injection?.result;
     if (!payload || payload.error) throw new Error(payload?.error ?? "주문내역을 읽지 못했습니다.");
     await chrome.storage.local.set({ quoteReviewCapture: { payload, capturedAt: new Date().toISOString() } });
-    setStatus(`${payload.items.length}개 품목을 가져왔어요. 검수 화면을 여는 중입니다.`, "success");
+    const method = payload._source === "L2" ? "구조화 데이터" : "화면 구조";
+    setStatus(`${method}에서 ${payload.items.length}개 품목을 가져왔어요. 검수 화면을 여는 중입니다.`, "success");
     await chrome.tabs.create({ url: APP_URL });
     window.setTimeout(() => window.close(), 500);
   } catch (error) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import {
   elevenStreetPositionedPagesToOrder,
   gmarketPositionedPagesToOrder,
@@ -78,12 +79,13 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
 });
 
 test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으로 구분하고 도우미를 보조 경로로 둔다", async () => {
-  const [dialog, review, manifestText, extractor, bridge] = await Promise.all([
+  const [dialog, review, manifestText, extractor, bridge, popup] = await Promise.all([
     readFile(new URL("../app/ImportDialog.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/ReviewApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../extension/manifest.json", import.meta.url), "utf8"),
     readFile(new URL("../extension/extractor.js", import.meta.url), "utf8"),
     readFile(new URL("../extension/bridge.js", import.meta.url), "utf8"),
+    readFile(new URL("../extension/popup.js", import.meta.url), "utf8"),
   ]);
   const manifest = JSON.parse(manifestText);
 
@@ -151,12 +153,50 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(dialog, /QUOTE_REVIEW_REQUEST_CAPTURE/);
   assert.deepEqual(manifest.permissions.sort(), ["activeTab", "scripting", "storage"]);
   assert.doesNotMatch(manifestText, /cookies|webRequest|history/);
+  assert.equal(manifest.name, "에듀파인 품의내역 브라우저 도우미");
+  assert.match(manifestText, /deepsky616\.github\.io\/school-quote-review/);
   assert.match(extractor, /\[V-P01\]/);
   assert.match(extractor, /\[V-P02\]/);
+  assert.match(extractor, /structured-page-data/);
+  assert.match(extractor, /"__NEXT_DATA__"/);
+  assert.match(extractor, /dataLayer/);
+  assert.match(extractor, /JSON-LD/);
+  assert.match(extractor, /_source: "L2"/);
   assert.match(extractor, /sourceUrl: location\.href/);
+  assert.match(popup, /world: "MAIN"/);
+  assert.match(popup, /deepsky616\.github\.io\/school-quote-review/);
   assert.match(bridge, /event\.origin !== window\.location\.origin/);
-  await access(new URL("../public/gyeonjeok-helper.zip", import.meta.url));
+  assert.match(review, /extraction-summary/);
+  assert.match(review, /item-provenance/);
+  await access(new URL("../public/edufine-helper-0.2.0.zip", import.meta.url));
   await access(new URL("../public/pdf.worker.min.mjs", import.meta.url));
+});
+
+test("브라우저 도우미는 DOM보다 구조화 상품 데이터 L2를 우선하고 합계를 교차검증한다", async () => {
+  const source = await readFile(new URL("../extension/extractor.js", import.meta.url), "utf8");
+  const dataLayer = [{ ecommerce: { items: [
+    { item_name: "비커 250mL", item_variant: "붕규산 3.3유리", quantity: 2, item_price: 2400, totalPrice: 4800 },
+    { item_name: "복사용지 A4", item_variant: "500매", quantity: 1, item_price: 15000, totalPrice: 15000 },
+  ] } }];
+  const result = runInNewContext(source, {
+    window: { dataLayer },
+    document: { body: { innerText: "주문번호 ORDER-2026-001 총 결제 금액 19,800원" }, title: "주문 내역", querySelectorAll: () => [] },
+    location: { hostname: "shop.example", href: "https://shop.example/order/ORDER-2026-001", pathname: "/order/ORDER-2026-001" },
+    performance: { getEntriesByType: () => [{ initiatorType: "fetch", name: "https://shop.example/api/order/detail?token=secret" }] },
+    URL,
+  });
+
+  assert.equal(result._source, "L2");
+  assert.equal(result._extractedBy, "structured-page-data");
+  assert.equal(result.items.length, 2);
+  assert.deepEqual(Array.from(result.items, (item) => item.내용), ["비커 250mL", "복사용지 A4"]);
+  assert.deepEqual(Array.from(result.items, (item) => item.규격), ["붕규산 3.3유리", "500매"]);
+  assert.deepEqual(Array.from(result.items, (item) => item.수량), [2, 1]);
+  assert.deepEqual(Array.from(result.items, (item) => item.단가), [2400, 15000]);
+  assert.equal(result.paidTotal, 19800);
+  assert.deepEqual(Array.from(result._warnings), []);
+  assert.deepEqual(Array.from(result._diagnostics.apiCandidates), ["https://shop.example/api/order/detail"]);
+  assert.ok(result._confidence >= 0.9);
 });
 
 test("GitHub Pages 정적 빌드와 배포 구성을 유지한다", async () => {

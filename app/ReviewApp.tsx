@@ -6,6 +6,8 @@ import ImportDialog from "./ImportDialog.tsx";
 import { importPdf } from "./fileImport.mjs";
 import { parseOrderText } from "./orderTextParser.mjs";
 
+type ExtractionTier = "L1" | "L2" | "L3" | "L4" | "L5" | "L6";
+
 type ReviewItem = {
   id: string;
   내용: string;
@@ -19,6 +21,10 @@ type ReviewItem = {
   warnings: string[];
   sourceUrl?: string;
   manuallyAdded?: boolean;
+  extractionTier: ExtractionTier;
+  extractionLabel: string;
+  confidence: number;
+  sourceDetail?: string;
 };
 
 type OrderMeta = {
@@ -30,6 +36,10 @@ type OrderMeta = {
   sourceUrl?: string;
   sourceUrls: string[];
   warnings: string[];
+  extractionTier: ExtractionTier;
+  extractionLabel: string;
+  confidence: number;
+  sourceDetail?: string;
 };
 
 const initialItems: ReviewItem[] = [];
@@ -42,6 +52,9 @@ const initialMeta: OrderMeta = {
   stage: "pre-purchase",
   sourceUrls: [],
   warnings: [],
+  extractionTier: "L6",
+  extractionLabel: "직접 입력",
+  confidence: 1,
 };
 
 const shoppingOrderLinks = [
@@ -70,6 +83,37 @@ const warningText: Record<string, string> = {
 
 const blockingRules = new Set(["V01", "V02", "V04", "V05", "V07", "V11", "V12", "V15"]);
 const won = (value: number) => new Intl.NumberFormat("ko-KR").format(value);
+const extractionLabels: Record<ExtractionTier, string> = {
+  L1: "내부 주문 데이터", L2: "구조화 데이터", L3: "화면 구조",
+  L4: "복사한 주문 화면", L5: "PDF·문서", L6: "직접 입력",
+};
+const isExtractionTier = (value: string): value is ExtractionTier => /^L[1-6]$/.test(value);
+const confidenceBand = (value: number) => value >= 0.9 ? "신뢰도 높음" : value >= 0.7 ? "확인 권장" : "전체 확인 필요";
+const extractionDescription = (tier: ExtractionTier) => ({
+  L1: "쇼핑몰의 품목 필드에서 직접 가져왔습니다.",
+  L2: "상품명·수량·가격이 분리된 구조화 데이터에서 가져왔습니다.",
+  L3: "화면의 반복되는 상품 행을 읽었습니다. 노란 표시를 확인하세요.",
+  L4: "복사된 글자 순서를 분석했습니다. 수량·할인가를 확인하세요.",
+  L5: "문서의 표와 글자 위치를 분석했습니다. 원본과 대조하세요.",
+  L6: "사용자가 직접 입력하거나 추가한 값입니다.",
+})[tier];
+const extractionInfo = (extractedBy: string, source: unknown, confidence: unknown, detail: unknown) => {
+  const explicitTier = String(source ?? "").toUpperCase();
+  const tier: ExtractionTier = isExtractionTier(explicitTier) ? explicitTier
+    : /structured|single-product|public-link/.test(extractedBy) ? "L2"
+      : /browser/.test(extractedBy) ? "L3"
+        : /clipboard|paste|text/.test(extractedBy) && !/pdf/.test(extractedBy) ? "L4"
+          : /pdf|ocr|spreadsheet|csv/.test(extractedBy) ? "L5"
+            : "L6";
+  const defaults: Record<ExtractionTier, number> = { L1: 0.99, L2: 0.94, L3: 0.78, L4: 0.72, L5: 0.58, L6: 1 };
+  const parsedConfidence = Number(confidence);
+  return {
+    tier,
+    label: extractionLabels[tier],
+    confidence: Number.isFinite(parsedConfidence) ? Math.min(1, Math.max(0, parsedConfidence)) : defaults[tier],
+    detail: detail ? String(detail) : undefined,
+  };
+};
 const safeNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed) : fallback;
@@ -94,6 +138,8 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
   const order = value as Record<string, unknown>;
   if (!Array.isArray(order.items) || order.items.length === 0) throw new Error("[V01] items가 비어 있습니다.");
   const stage: OrderMeta["stage"] = order.stage === "pre-purchase" ? "pre-purchase" : "post-purchase";
+  const extractedBy = String(order._extractedBy ?? "");
+  const orderExtraction = extractionInfo(extractedBy, order._source, order._confidence, order._sourceDetail);
 
   const items = order.items.map((raw, index) => {
     const row = (raw ?? {}) as Record<string, unknown>;
@@ -108,6 +154,12 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
     const completed = /(주문취소|취소완료|반품완료|교환완료|환불완료)/.test(rawText);
     const controls = /(취소가능|취소불가|교환\/반품 신청|반품안내)/.test(rawText);
     if (completed && !controls) warnings.push("V13");
+    const itemExtraction = extractionInfo(
+      extractedBy,
+      row._source ?? order._source,
+      row._confidence ?? row.confidence ?? order._confidence,
+      row._sourceDetail ?? order._sourceDetail,
+    );
     const item: ReviewItem = {
       id: `imported-${index}-${Date.now()}`,
       내용: String(row["내용"] ?? ""),
@@ -123,6 +175,10 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
       sourceUrl: typeof (row.sourceUrl ?? row.url) === "string" && /^https?:\/\//.test(String(row.sourceUrl ?? row.url))
         ? String(row.sourceUrl ?? row.url)
         : undefined,
+      extractionTier: itemExtraction.tier,
+      extractionLabel: itemExtraction.label,
+      confidence: itemExtraction.confidence,
+      sourceDetail: itemExtraction.detail,
     };
     return { ...item, warnings: deriveWarnings(item) };
   });
@@ -147,6 +203,10 @@ function normalizeOrder(value: unknown): { items: ReviewItem[]; meta: OrderMeta 
       sourceUrl: primarySourceUrl ?? sourceUrls[0],
       sourceUrls,
       warnings: stage === "pre-purchase" ? orderWarnings.filter((warning) => warning !== "V07" && warning !== "V08") : orderWarnings,
+      extractionTier: orderExtraction.tier,
+      extractionLabel: orderExtraction.label,
+      confidence: orderExtraction.confidence,
+      sourceDetail: orderExtraction.detail,
     },
   };
 }
@@ -295,6 +355,9 @@ export default function ReviewApp() {
       excluded: false,
       warnings: ["V02", "V05"],
       manuallyAdded: true,
+      extractionTier: "L6",
+      extractionLabel: extractionLabels.L6,
+      confidence: 1,
     }]);
     setIssuesOnly(false);
     setMessage("빈 품목을 추가했어요");
@@ -489,6 +552,9 @@ export default function ReviewApp() {
             <p className="eyebrow">{meta.mall} · {meta.stage === "pre-purchase" ? "구매 전 예상 견적" : `주문 ${meta.orderNo}`}</p>
             <h1>내역을 한 번 더<br />확인해 주세요.</h1>
             <p className="heading-copy">기계가 옮겨 적고, 선생님이 판단합니다.<br />{meta.stage === "pre-purchase" ? "수량·예상단가와 예산 한도를 확인하세요." : "노란 표시만 확인하면 견적서가 완성돼요."}</p>
+            <div className={`extraction-summary tier-${meta.extractionTier.toLowerCase()}`} title={meta.sourceDetail}>
+              <span>{meta.extractionTier}</span><div><strong>{meta.extractionLabel} · {confidenceBand(meta.confidence)}</strong><small>{extractionDescription(meta.extractionTier)}</small></div>
+            </div>
             {meta.sourceUrl && <a className="source-link" href={meta.sourceUrl} target="_blank" rel="noreferrer">{meta.sourceUrls.length > 1 ? `첫 번째 원본 상품 열기 · 총 ${meta.sourceUrls.length}개` : "원본 주문내역 열기"} <span aria-hidden="true">↗</span></a>}
           </div>
           <div className="summary-card" aria-label="합계 요약">
@@ -530,7 +596,7 @@ export default function ReviewApp() {
                   <span className="item-line"><input id={`item-name-${item.id}`} className="cell-input name-input" value={item.내용} onChange={(event) => updateItem(item.id, { 내용: event.target.value, warnings: item.warnings.filter((warning) => warning !== "V03") })} aria-label={`${item.내용 || "새 품목"} 품명`} />{item.warnings.map((warning) => <em key={warning}>{warning}</em>)}</span>
                   {item.manuallyAdded
                     ? <span className="manual-item-meta"><b>직접 추가</b><button type="button" onClick={() => removeItem(item.id)}>행 삭제</button></span>
-                    : <small title={item._rawName}>{item._rawName}</small>}
+                    : <span className="item-detail-meta"><b className={`item-provenance tier-${item.extractionTier.toLowerCase()}`} title={`${item.sourceDetail ?? item.extractionLabel} · ${Math.round(item.confidence * 100)}%`}>{item.extractionTier} {item.extractionLabel} · {confidenceBand(item.confidence)}</b><small title={item._rawName}>{item._rawName}</small></span>}
                   {item.sourceUrl && <a className="item-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">원본 상품 ↗</a>}
                   {item.excluded && <span className="exclude-note">제외 사유 · {item.excludeReason ?? "검수에서 제외"}</span>}
                 </span>

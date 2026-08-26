@@ -278,6 +278,13 @@ button { cursor: pointer; }
 
 h1 { margin: 0; max-width: 560px; font-size: clamp(40px, 5vw, 64px); line-height: 1.03; letter-spacing: -.075em; font-weight: 850; }
 .heading-copy { margin: 22px 0 0; color: #65736c; font-size: 16px; line-height: 1.7; letter-spacing: -.02em; }
+.extraction-summary { width: fit-content; display: inline-grid; grid-template-columns: auto 1fr; align-items: center; gap: 9px; margin-top: 15px; padding: 8px 10px; border: 1px solid #cfddd4; border-radius: 9px; background: #f4f8f5; }
+.extraction-summary > span { min-width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; background: var(--green); color: #fff; font-size: 9px; font-weight: 950; }
+.extraction-summary > div { display: grid; gap: 2px; }
+.extraction-summary strong { color: #365247; font-size: 10px; }
+.extraction-summary small { color: #79867f; font-size: 9px; }
+.extraction-summary.tier-l4, .extraction-summary.tier-l5 { border-color: #e6d3a9; background: #fff9ec; }
+.extraction-summary.tier-l4 > span, .extraction-summary.tier-l5 > span { background: #c78727; }
 .source-link { display: inline-flex; align-items: center; gap: 7px; margin-top: 17px; color: var(--green); font-size: 12px; font-weight: 800; text-decoration: none; }
 .source-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 
@@ -358,6 +365,11 @@ h1 { margin: 0; max-width: 560px; font-size: clamp(40px, 5vw, 64px); line-height
 .item-line { display: flex; align-items: center; gap: 8px; }
 .item-line b { font-size: 14px; letter-spacing: -.02em; }
 .item-line em { padding: 3px 6px; border-radius: 5px; background: #fff0cd; color: var(--amber); font-size: 9px; font-style: normal; font-weight: 900; }
+.item-detail-meta { display: flex; align-items: center; gap: 7px; margin-top: 6px; min-width: 0; }
+.item-provenance { flex: 0 0 auto; padding: 3px 6px; border-radius: 5px; background: #e5f1e9; color: #2f7654; font-size: 8px; font-weight: 900; }
+.item-provenance.tier-l4, .item-provenance.tier-l5 { background: #fff0cf; color: #93621c; }
+.item-provenance.tier-l6 { background: #eceeed; color: #64706a; }
+.name-cell .item-detail-meta small { min-width: 0; margin-top: 0; }
 .name-cell small { display: block; margin-top: 7px; max-width: 360px; overflow: hidden; color: #9aa29e; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .item-source-link { display: inline-flex; margin-top: 5px; color: var(--green); font-size: 9px; font-weight: 800; text-decoration: none; }
 .manual-item-meta { margin-top: 6px; display: flex; align-items: center; gap: 8px; }

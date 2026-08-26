@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "견적정리 브라우저 도우미",
-  "version": "0.1.0",
-  "description": "로그인한 쇼핑몰 주문내역에서 견적서 검수에 필요한 항목만 로컬로 가져옵니다.",
+  "name": "에듀파인 품의내역 브라우저 도우미",
+  "version": "0.2.0",
+  "description": "로그인한 쇼핑몰의 구조화 데이터 또는 주문 화면에서 품의내역에 필요한 항목만 로컬로 가져옵니다.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "https://school-quote-review.climbing1126.chatgpt.site/*",
+    "https://deepsky616.github.io/school-quote-review/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
@@ -17,6 +18,7 @@
     {
       "matches": [
         "https://school-quote-review.climbing1126.chatgpt.site/*",
+        "https://deepsky616.github.io/school-quote-review/*",
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
