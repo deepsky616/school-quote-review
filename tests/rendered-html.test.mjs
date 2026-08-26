@@ -7,8 +7,10 @@ import {
   gmarketPositionedPagesToOrder,
   importPdf,
   iscreamPositionedPagesToOrder,
+  kyoboPositionedPagesToOrder,
   mananPositionedPagesToOrder,
   spreadsheetRowsToOrder,
+  teachermallPositionedPagesToOrder,
   yes24PositionedPagesToOrder,
 } from "../app/fileImport.mjs";
 import { parseOrderText } from "../app/orderTextParser.mjs";
@@ -45,10 +47,11 @@ test("견적 검수 화면을 서버에서 렌더링한다", async () => {
 });
 
 test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", async () => {
-  const [source, layout, packageJson] = await Promise.all([
+  const [source, layout, packageJson, pagesEntry] = await Promise.all([
     readFile(new URL("../app/ReviewApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../pages-app/index.html", import.meta.url), "utf8"),
   ]);
 
   assert.match(source, /sheet name="품목내역"/);
@@ -75,7 +78,15 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   assert.match(source, /new Blob\(\[bytes\.buffer as ArrayBuffer\]/);
   assert.match(layout, /new URL\("\/og-edufine\.png", base\)/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  assert.doesNotMatch(packageJson, /tesseract\.js/);
+  assert.match(pagesEntry, /Content-Security-Policy/);
+  assert.match(pagesEntry, /connect-src 'self'/);
+  assert.match(pagesEntry, /object-src 'none'/);
   await access(new URL("../public/og-edufine.png", import.meta.url));
+  await assert.rejects(access(new URL("../app/linkImport.mjs", import.meta.url)));
+  await assert.rejects(access(new URL("../app/screenCapture.mjs", import.meta.url)));
+  await assert.rejects(access(new URL("../app/chatgpt-auth.ts", import.meta.url)));
+  await assert.rejects(access(new URL("../app/api/product-draft/route.ts", import.meta.url)));
 });
 
 test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으로 구분하고 도우미를 보조 경로로 둔다", async () => {
@@ -117,6 +128,11 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /accept="\.pdf,application\/pdf"/);
   assert.match(review, /parseOrderText\(pasteText/);
   assert.match(review, /품목 자동 작성/);
+  assert.match(review, /const clearPastedOrder = \(\) =>/);
+  assert.match(review, /setPasteText\(""\)/);
+  assert.match(review, /setPasteTotal\(""\)/);
+  assert.match(review, /붙여넣은 주문내역 전체 지우기/);
+  assert.match(review, /> 전체 지우기<\/button>/);
   assert.doesNotMatch(review, /클립보드에서 붙여넣기|navigator\.clipboard\.readText/);
   assert.doesNotMatch(dialog, /클립보드에서 붙여넣기|navigator\.clipboard\.readText/);
   assert.match(review, /지원 쇼핑몰 주문 화면 바로가기/);
@@ -126,15 +142,23 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /https:\/\/www\.yes24\.com\/Member\/FTMypageMain\.aspx/);
   assert.match(review, /https:\/\/www\.11st\.co\.kr\//);
   assert.match(review, /https:\/\/www\.mananmungu\.co\.kr\/mall\/index\.php/);
+  assert.match(review, /https:\/\/shop\.teacherville\.co\.kr\//);
+  assert.match(review, /https:\/\/www\.kyobobook\.co\.kr\//);
+  const shoppingLinkOrder = ["G마켓", "11번가", "쿠팡", "YES24", "교보문고", "아이스크림몰", "티처몰", "만안문구센터"];
+  const shoppingLinksSource = review.slice(review.indexOf("const shoppingOrderLinks"), review.indexOf("const warningText"));
+  const shoppingLinkPositions = shoppingLinkOrder.map((name) => shoppingLinksSource.indexOf(`name: "${name}"`));
+  assert.ok(shoppingLinkPositions.every((position) => position >= 0));
+  assert.deepEqual(shoppingLinkPositions, [...shoppingLinkPositions].sort((left, right) => left - right));
+  assert.match(review, /장바구니·주문결제/);
   assert.match(review, /장바구니·주문내역 PDF/);
   assert.match(review, /자동 품목 구분은 위에 표시된 쇼핑몰 주문 화면을 기준으로 최적화/);
   assert.match(review, /다른 쇼핑몰은 값이 빠지거나 잘못 연결될 수 있으므로/);
   assert.match(review, /복사 붙여넣기와 PDF 방법 비교/);
-  assert.match(review, /YES24·G마켓·아이스크림몰·11번가·만안문구센터 예시 구조/);
+  assert.match(review, /YES24·교보문고·G마켓·아이스크림몰·11번가·만안문구센터·티처몰 예시 구조/);
   assert.match(review, /자동 수집하지 않습니다/);
   assert.doesNotMatch(review, /상품 링크를 한 줄에 하나씩|상품 초안 만들기|현재 화면 보내기|getDisplayMedia/);
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
-  assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 · 11번가 자동 구분/);
+  assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 · 교보문고 · 11번가 · 티처몰 자동 구분/);
   assert.match(dialog, /정가·할인율·쿠폰·적립금·판매자·배송상태/);
   assert.match(dialog, /주문내역 PDF 선택/);
   assert.match(dialog, /종이 견적서·영수증/);
@@ -339,6 +363,65 @@ test("쇼핑몰별 주문 화면 PDF는 좌표 구조에 맞춰 상품명·할�
     ["배송비", "", 3000],
   ]);
 
+  const teachermall = teachermallPositionedPagesToOrder([[
+    cell("티처몰", 195, 770), cell("주문상품", 158, 589), cell("수량", 332, 589), cell("상품금액", 381, 589), cell("할인금액", 443, 589), cell("할인적용금액", 499, 589),
+    cell("상품번호 1096994", 73, 568), cell("흡연예방&학교폭력예방 L홀더 시리즈 (디자인 택1)", 72, 559), cell("옵션", 73, 547), cell("디자인선택: 흡연예방C", 87, 548), cell("10", 335, 558), cell("6,600원", 396, 558), cell("-", 480, 557), cell("6,600", 518, 557), cell("원", 538, 557), cell("이든", 555, 568), cell("택배", 555, 557), cell("3,00", 555, 547),
+    cell("상품번호 1125781", 73, 525), cell("[학토재] 디지털시민 가치 카드 - (디지털 역량, 인공지능 윤리)", 72, 516), cell("비과세", 73, 505), cell("3", 337, 516), cell("69,000원", 393, 516), cell("-", 480, 515), cell("69,000", 513, 515), cell("원", 538, 515), cell("(주)", 555, 526), cell("택배", 555, 515), cell("무료", 555, 505),
+    cell("상품번호 1215097", 73, 484), cell("흡연예방 썬캐쳐(4종택1)", 72, 475), cell("옵션", 73, 463), cell("디자인: 2.완주하자", 87, 464), cell("1", 337, 474), cell("2,200원", 396, 474), cell("-", 480, 473), cell("2,200", 518, 473), cell("원", 538, 473), cell("와우", 555, 484), cell("택배", 555, 473), cell("3,00", 555, 463),
+    cell("https://shop.teacherville.co.kr/order/settle", 24, 16),
+  ]]);
+  assert.ok(teachermall);
+  assert.equal(teachermall._extractedBy, "teachermall-pdf-table");
+  assert.deepEqual(teachermall.items.map((item) => [item.내용, item.규격, item.단위, item.수량, item.단가, item.금액]), [
+    ["흡연예방&학교폭력예방 L홀더 시리즈 (디자인 택1)", "디자인선택: 흡연예방C", "개", 10, 660, 6600],
+    ["배송비", "", "건", 1, 3000, 3000],
+    ["[학토재] 디지털시민 가치 카드 - (디지털 역량, 인공지능 윤리)", "", "개", 3, 23000, 69000],
+    ["흡연예방 썬캐쳐(4종택1)", "디자인: 2.완주하자", "개", 1, 2200, 2200],
+    ["배송비", "", "건", 1, 3000, 3000],
+  ]);
+  assert.equal(teachermall.paidTotal, 83800);
+
+  const discountedTeachermall = teachermallPositionedPagesToOrder([[
+    cell("티처몰", 195, 770), cell("주문상품", 158, 589), cell("수량", 332, 589), cell("상품금액", 381, 589), cell("할인금액", 443, 589), cell("할인적용금액", 499, 589),
+    cell("상품번호 1300001", 73, 568), cell("할인 적용 테스트 상품", 72, 559), cell("옵션", 73, 547), cell("파랑", 87, 548), cell("2", 335, 558), cell("10,000원", 391, 558), cell("1,000원", 454, 558), cell("9,000", 515, 557), cell("원", 538, 557), cell("판매처", 555, 568), cell("택배", 555, 557), cell("2,500", 555, 547), cell("원", 580, 547),
+    cell("https://shop.teacherville.co.kr/order/settle", 24, 16),
+  ]]);
+  assert.ok(discountedTeachermall);
+  assert.deepEqual(discountedTeachermall.items.map((item) => [item.내용, item.규격, item.수량, item.단가, item.금액]), [
+    ["할인 적용 테스트 상품", "파랑", 2, 4500, 9000],
+    ["배송비", "", 1, 2500, 2500],
+  ]);
+
+  const kyobo = kyoboPositionedPagesToOrder([[
+    cell("교보문고", 334, 818), cell("주문상품", 104, 428),
+    cell("[국내도서]돈의 속성(400쇄 리커버에디션)", 152, 366.4), cell("1", 428.8, 365.4), cell("개", 432.7, 365.4), cell("16,020", 480.1, 369.9), cell("원", 504.6, 369.9), cell("17,800", 484.9, 358.4), cell("원", 502.6, 358.4),
+    cell("[보유외서]National Geographic Kids Almanac 2027", 152, 280.9), cell("1", 428.8, 279.4), cell("개", 432.7, 279.4), cell("17,600", 480.1, 284.4), cell("원", 504.6, 284.4), cell("31,680", 484.9, 272.9), cell("원", 502.6, 272.9),
+    cell("[국내도서]기억의 무늬", 152, 194.4), cell("1", 428.8, 192.9), cell("개", 432.7, 192.9), cell("17,820", 480.1, 197.9), cell("원", 504.6, 197.9), cell("19,800", 484.9, 186.4), cell("원", 502.6, 186.4),
+    cell("https://order.kyobobook.co.kr/order/order", 24, 16),
+  ]]);
+  assert.ok(kyobo);
+  assert.equal(kyobo._extractedBy, "kyobo-pdf-cards");
+  assert.deepEqual(kyobo.items.map((item) => [item.내용, item.규격, item.단위, item.수량, item.단가, item.금액]), [
+    ["[국내도서]돈의 속성(400쇄 리커버에디션)", "", "권", 1, 16020, 16020],
+    ["[보유외서]National Geographic Kids Almanac 2027", "", "권", 1, 17600, 17600],
+    ["[국내도서]기억의 무늬", "", "권", 1, 17820, 17820],
+  ]);
+  assert.equal(kyobo.paidTotal, 51440);
+
+  const inlineKyobo = kyoboPositionedPagesToOrder([[
+    cell("교보문고", 334, 818), cell("주문상품", 104, 428),
+    cell("[국내도서]돈의 속성(400쇄 리커버에디션) 1개", 152, 366.4), cell("16,020", 480.1, 369.9), cell("원", 504.6, 369.9), cell("17,800", 484.9, 358.4), cell("원", 502.6, 358.4),
+    cell("[보유외서]National Geographic Kids Almanac 2027 1개", 152, 280.9), cell("17,600", 480.1, 284.4), cell("원", 504.6, 284.4), cell("31,680", 484.9, 272.9), cell("원", 502.6, 272.9),
+    cell("[국내도서]기억의 무늬 1개", 152, 194.4), cell("17,820", 480.1, 197.9), cell("원", 504.6, 197.9), cell("19,800", 484.9, 186.4), cell("원", 502.6, 186.4),
+    cell("https://order.kyobobook.co.kr/order/order", 24, 16),
+  ]]);
+  assert.ok(inlineKyobo);
+  assert.deepEqual(inlineKyobo.items.map((item) => [item.내용, item.수량, item.단가, item.금액]), [
+    ["[국내도서]돈의 속성(400쇄 리커버에디션)", 1, 16020, 16020],
+    ["[보유외서]National Geographic Kids Almanac 2027", 1, 17600, 17600],
+    ["[국내도서]기억의 무늬", 1, 17820, 17820],
+  ]);
+
   const iscream = iscreamPositionedPagesToOrder([[
     cell("아이스크림몰", 340, 800), cell("주문상품", 43, 760), cell("3건", 94, 760),
     cell("문교", 115, 720), cell("분필 칠판지우개 청소당번", 115, 702), cell("합배송 상품", 130, 685), cell("단일상품", 115, 666), cell("/ 2개", 151, 666), cell("3,600", 115, 645), cell("원", 150, 645),
@@ -435,6 +518,142 @@ test("G마켓 스크랩은 상품별 수량·할인가를 맞추고 유료 배�
   assert.deepEqual(order.items.filter((item) => item.내용 === "배송비").map((item) => item.규격), ["", "", ""]);
   assert.equal(order.paidTotal, 64540);
   assert.equal(order.mall, "item.gmarket.co.kr");
+});
+
+test("티처몰 주문 복사본은 중복 상품명을 제거하고 할인적용금액·옵션·배송비를 맞춘다", () => {
+  const order = parseOrderText([
+    "주문상품\t수량\t상품금액\t할인금액\t할인적용금액\t배송비",
+    "흡연예방&학교폭력예방 L홀더 시리즈 (디자인 택1)",
+    "상품번호 1096994",
+    "흡연예방&학교폭력예방 L홀더 시리즈 (디자인 택1)",
+    "옵션 디자인선택: 흡연예방C",
+    "10\t6,600원",
+    "---------",
+    "6,600원",
+    "이든교육",
+    "택배",
+    "3,000원 (선불)",
+    "변경",
+    "[학토재] 디지털시민 가치 카드 - (디지털 역량, 인공지능 윤리)",
+    "상품번호 1125781",
+    "[학토재] 디지털시민 가치 카드 - (디지털 역량, 인공지능 윤리)",
+    "비과세",
+    "3\t69,000원",
+    "---------",
+    "69,000원",
+    "(주)학토재행복가게",
+    "택배",
+    "무료 (선불)",
+    "변경",
+    "흡연예방 썬캐쳐(4종택1)",
+    "상품번호 1215097",
+    "흡연예방 썬캐쳐(4종택1)",
+    "옵션 디자인: 2.완주하자",
+    "1\t2,200원",
+    "--------",
+    "2,200원",
+    "와우노리",
+    "택배",
+    "3,000원 (선불)",
+    "변경",
+  ].join("\n"));
+
+  assert.equal(order.mall, "티처몰");
+  assert.deepEqual(order.items.map((item) => [item.내용, item.규격, item.단위, item.수량, item.단가, item.금액]), [
+    ["흡연예방&학교폭력예방 L홀더 시리즈 (디자인 택1)", "디자인선택: 흡연예방C", "개", 10, 660, 6600],
+    ["배송비", "", "건", 1, 3000, 3000],
+    ["[학토재] 디지털시민 가치 카드 - (디지털 역량, 인공지능 윤리)", "", "개", 3, 23000, 69000],
+    ["흡연예방 썬캐쳐(4종택1)", "디자인: 2.완주하자", "개", 1, 2200, 2200],
+    ["배송비", "", "건", 1, 3000, 3000],
+  ]);
+  assert.equal(order.items.filter((item) => item.내용.includes("L홀더")).length, 1);
+  assert.equal(order.paidTotal, 83800);
+});
+
+test("티처몰 필드가 줄마다 분리되어도 상품번호 뒤 상품명·옵션·수량·마지막 원 금액 순서로 읽는다", () => {
+  const order = parseOrderText([
+    "주문상품\t수량\t상품금액\t할인금액\t할인적용금액\t배송비",
+    "앞쪽에 반복된 이름은 사용하지 않음",
+    "상품번호 1300001",
+    "할인 적용 테스트 상품",
+    "옵션",
+    "파랑",
+    "2",
+    "10,000원",
+    "1,000원",
+    "9,000원",
+    "판매처",
+    "택배",
+    "2,500원 (선불)",
+    "변경",
+    "두 번째 상품 반복 표시",
+    "상품번호 1300002",
+    "배송비 없음 테스트 상품",
+    "1",
+    "5,000원",
+    "5,000원",
+    "판매처",
+    "택배",
+    "도움말",
+    "3,000원",
+    "변경",
+  ].join("\n"));
+
+  assert.equal(order.mall, "티처몰");
+  assert.deepEqual(order.items.map((item) => [item.내용, item.규격, item.수량, item.단가, item.금액]), [
+    ["할인 적용 테스트 상품", "파랑", 2, 4500, 9000],
+    ["배송비", "", 1, 2500, 2500],
+    ["배송비 없음 테스트 상품", "", 1, 5000, 5000],
+  ]);
+  assert.equal(order.items.filter((item) => item.내용 === "배송비").length, 1);
+  assert.equal(order.paidTotal, 16500);
+});
+
+test("교보문고 주문 복사본은 중복 제목을 제거하고 수량 다음 할인 적용 금액을 사용한다", () => {
+  const order = parseOrderText([
+    "[국내도서]돈의 속성(400쇄 리커버에디션)",
+    "1개\t16,020 원",
+    "17,800원",
+    "[보유외서]National Geographic Kids Almanac 2027",
+    "[보유외서]National Geographic Kids Almanac 2027",
+    "1개\t17,600 원",
+    "31,680원",
+    "[국내도서]기억의 무늬",
+    "[국내도서]기억의 무늬",
+    "1개\t17,820 원",
+    "19,800원",
+  ].join("\n"));
+
+  assert.equal(order.mall, "교보문고");
+  assert.deepEqual(order.items.map((item) => [item.내용, item.규격, item.단위, item.수량, item.단가, item.금액]), [
+    ["[국내도서]돈의 속성(400쇄 리커버에디션)", "", "권", 1, 16020, 16020],
+    ["[보유외서]National Geographic Kids Almanac 2027", "", "권", 1, 17600, 17600],
+    ["[국내도서]기억의 무늬", "", "권", 1, 17820, 17820],
+  ]);
+  assert.equal(order.paidTotal, 51440);
+});
+
+test("교보문고 상품명과 수량이 한 줄이어도 1개를 상품명에서 빼고 첫 금액만 사용한다", () => {
+  const order = parseOrderText([
+    "[국내도서]돈의 속성(400쇄 리커버에디션) 1개",
+    "16,020원",
+    "17,800원",
+    "[보유외서]National Geographic Kids Almanac 2027 1개",
+    "17,600원",
+    "31,680원",
+    "[국내도서]기억의 무늬 1개",
+    "17,820원",
+    "19,800원",
+  ].join("\n"));
+
+  assert.equal(order.mall, "교보문고");
+  assert.deepEqual(order.items.map((item) => [item.내용, item.규격, item.단위, item.수량, item.단가, item.금액]), [
+    ["[국내도서]돈의 속성(400쇄 리커버에디션)", "", "권", 1, 16020, 16020],
+    ["[보유외서]National Geographic Kids Almanac 2027", "", "권", 1, 17600, 17600],
+    ["[국내도서]기억의 무늬", "", "권", 1, 17820, 17820],
+  ]);
+  assert.ok(order.items.every((item) => !/\s1개$/.test(item.내용)));
+  assert.equal(order.paidTotal, 51440);
 });
 
 test("구조가 사라진 주문 텍스트의 수량과 가격 기준은 자동 확정하지 않는다", () => {

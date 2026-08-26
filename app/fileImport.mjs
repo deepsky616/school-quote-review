@@ -102,6 +102,11 @@ const pdfMoney = (value) => {
   return match ? Number(match[0].replaceAll(",", "")) : 0;
 };
 
+const pdfMoneyValues = (value) => {
+  const matches = cleanPdfCell(value).match(/(?:\d[\d,]*\s*원|\d{1,3}(?:,\d{3})+)/g) ?? [];
+  return matches.map((match) => Number(match.replace(/[^\d]/g, ""))).filter((amount) => amount > 0);
+};
+
 const MANAN_UNITS = "개|롤|속|자루|세트|팩|박스|권|매|병|봉|묶음|식";
 
 export function mananPositionedPagesToOrder(positionedPages) {
@@ -215,6 +220,169 @@ function positionedPdfOrder(mall, extractedBy, items, documentedTotal = 0) {
     _extractedBy: extractedBy,
     items: items.slice(0, 120),
   };
+}
+
+const teachermallShippingMoney = (value) => {
+  const cleaned = cleanPdfCell(value).replace(/\s*원\s*$/, "");
+  const clipped = cleaned.match(/^(\d{1,3}),(\d{2})$/);
+  return clipped ? Number(`${clipped[1]}${clipped[2]}0`) : pdfMoney(cleaned);
+};
+
+export function teachermallPositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
+  if (!/티처몰|shop\.teacherville\.co\.kr/i.test(documentText)
+    || !/주문상품/.test(documentText)
+    || !/할인적용금액/.test(documentText)) return null;
+
+  const expectedProductCount = pages.flat().filter((cell) => /^상품번호\s+\d+/i.test(cell.value)).length;
+  const items = pages.flatMap((cells) => {
+    const productNumberCells = cells
+      .filter((cell) => cell.x >= 60 && cell.x < 330 && /^상품번호\s+\d+/i.test(cell.value))
+      .sort((a, b) => b.y - a.y);
+
+    return productNumberCells.flatMap((numberCell, index) => {
+      const lowerY = productNumberCells[index + 1]?.y ?? numberCell.y - 45;
+      const region = cells.filter((cell) => cell.y <= numberCell.y + 2 && cell.y > lowerY);
+      const nameRows = region
+        .filter((cell) => cell.x >= 60 && cell.x < 325 && cell.y < numberCell.y && numberCell.y - cell.y <= 18)
+        .filter((cell) => !/^(?:옵션|비과세|상품번호)/i.test(cell.value))
+        .map((cell) => cell.y)
+        .filter((rowY, rowIndex, rows) => rows.findIndex((candidate) => Math.abs(candidate - rowY) <= 3) === rowIndex)
+        .sort((a, b) => b - a);
+      const nameRowY = nameRows[0];
+      const name = nameRowY == null ? "" : tidyPdfProductName(cellsNearRow(region, nameRowY)
+        .filter((cell) => cell.x >= 60 && cell.x < 325)
+        .map((cell) => cell.value)
+        .join(" "));
+      const quantityCell = region
+        .filter((cell) => cell.x >= 325 && cell.x < 380 && /^\d{1,4}$/.test(cell.value))
+        .sort((a, b) => b.y - a.y)[0];
+      const quantity = Number(quantityCell?.value ?? 0);
+      const amountRow = quantityCell ? cellsNearRow(region, quantityCell.y, 4) : [];
+      const amount = pdfMoneyValues(amountRow
+        .filter((cell) => cell.x >= 380 && cell.x < 550)
+        .sort((a, b) => a.x - b.x)
+        .map((cell) => cell.value)
+        .join(" ")).at(-1) ?? 0;
+      if (!name || !quantity || !amount) return [];
+
+      const optionLabel = region.find((cell) => cell.x >= 60 && cell.x < 100 && cell.value === "옵션");
+      const spec = optionLabel ? tidyPdfProductName(cellsNearRow(region, optionLabel.y, 3)
+        .filter((cell) => cell.x > optionLabel.x && cell.x < 325)
+        .map((cell) => cell.value)
+        .join(" ")) : "";
+      const productNumber = numberCell.value.match(/\d+/)?.[0] ?? "";
+      const product = {
+        내용: name,
+        규격: spec,
+        단위: "개",
+        수량: quantity,
+        단가: Math.round(amount / quantity),
+        금액: amount,
+        _rawName: `상품번호 ${productNumber} | ${name} | ${spec || "옵션 없음"} | ${quantity}개 | ${amount}원`,
+        _warnings: amount % quantity === 0 ? [] : ["V06"],
+        excluded: false,
+      };
+
+      const carrierCell = region
+        .filter((cell) => cell.x >= 550 && /^택배$/i.test(cell.value))
+        .sort((a, b) => b.y - a.y)[0];
+      const deliveryRowY = carrierCell && region
+        .filter((cell) => cell.x >= 550 && cell.y < carrierCell.y && carrierCell.y - cell.y <= 18)
+        .map((cell) => cell.y)
+        .sort((a, b) => b - a)[0];
+      const deliveryText = deliveryRowY == null ? "" : cellsNearRow(region, deliveryRowY, 3)
+        .filter((cell) => cell.x >= 550)
+        .sort((a, b) => a.x - b.x)
+        .map((cell) => cell.value)
+        .join(" ");
+      const isClippedRightEdgeMoney = /^\d{1,3},\d{2}$/.test(deliveryText);
+      const shippingAmount = /무료/i.test(deliveryText) || (!/원/i.test(deliveryText) && !isClippedRightEdgeMoney)
+        ? 0
+        : teachermallShippingMoney(deliveryText);
+      return shippingAmount > 0 ? [product, {
+        내용: "배송비", 규격: "", 단위: "건", 수량: 1, 단가: shippingAmount, 금액: shippingAmount,
+        _rawName: `상품번호 ${productNumber} | 배송비 ${shippingAmount}원`, _warnings: [], excluded: false,
+      }] : [product];
+    });
+  });
+
+  if (expectedProductCount && items.filter((item) => item.내용 !== "배송비").length !== expectedProductCount) return null;
+  return positionedPdfOrder("티처몰", "teachermall-pdf-table", items);
+}
+
+const KYOBO_PDF_TITLE = /^\[(?:국내도서|보유외서|외국도서|eBook|오디오북|중고도서)\]\S/i;
+
+const joinKyoboPdfTitle = (cells) => cells.reduce((title, cell, index) => {
+  if (index === 0) return cell.value;
+  const previous = cells[index - 1];
+  const previousWidth = Number(previous.width);
+  const gap = Number.isFinite(previousWidth) ? cell.x - (previous.x + previousWidth) : 0;
+  return `${title}${gap > 0.8 ? " " : ""}${cell.value}`;
+}, "");
+
+const splitKyoboPdfTitle = (value) => {
+  const cleaned = cleanPdfCell(value);
+  const inline = cleaned.match(/^(.*\S)\s+(\d{1,4})\s*개\s*$/i);
+  return {
+    name: (inline?.[1] ?? cleaned).trim(),
+    quantity: Number(inline?.[2] ?? 0),
+  };
+};
+
+export function kyoboPositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
+  if (!/교보문고|order\.kyobobook\.co\.kr/i.test(documentText) || !/주문상품/.test(documentText)) return null;
+
+  const items = pages.flatMap((cells) => {
+    const titleRows = cells
+      .filter((cell) => cell.x >= 145 && cell.x < 410)
+      .map((cell) => cell.y)
+      .filter((rowY, index, rows) => rows.findIndex((candidate) => Math.abs(candidate - rowY) <= 2) === index)
+      .map((rowY) => ({
+        y: rowY,
+        value: joinKyoboPdfTitle(cellsNearRow(cells, rowY, 2)
+          .filter((cell) => cell.x >= 145 && cell.x < 410)),
+      }))
+      .filter((row) => KYOBO_PDF_TITLE.test(row.value))
+      .sort((a, b) => b.y - a.y);
+
+    return titleRows.flatMap((titleRow) => {
+      const title = splitKyoboPdfTitle(titleRow.value);
+      const quantityText = cells
+        .filter((cell) => cell.x >= 420 && cell.x < 455 && Math.abs(cell.y - titleRow.y) <= 8)
+        .sort((a, b) => a.x - b.x)
+        .map((cell) => cell.value)
+        .join("");
+      const quantity = title.quantity || Number(quantityText.match(/(\d{1,4})\s*개/)?.[1] ?? 0);
+      const discountedRows = cells
+        .filter((cell) => cell.x >= 470 && cell.x < 515 && Math.abs(cell.y - titleRow.y) <= 13)
+        .filter((cell) => /^\d[\d,]*$/.test(cell.value) && pdfMoney(cell.value) > 0)
+        .sort((a, b) => b.y - a.y);
+      const amountCell = discountedRows[0];
+      const amount = pdfMoney(amountCell?.value);
+      const name = tidyPdfProductName(title.name);
+      if (!name || !quantity || !amount) return [];
+
+      const unitPrice = Math.round(amount / quantity);
+      return [{
+        내용: name,
+        규격: "",
+        단위: "권",
+        수량: quantity,
+        단가: unitPrice,
+        금액: amount,
+        _rawName: `${name} | ${quantityText} | ${amountCell.value}`,
+        _warnings: amount === quantity * unitPrice ? [] : ["V06"],
+        excluded: false,
+      }];
+    });
+  });
+
+  if (!items.length) return null;
+  return positionedPdfOrder("교보문고", "kyobo-pdf-cards", items);
 }
 
 export function yes24PositionedPagesToOrder(positionedPages) {
@@ -488,7 +656,7 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
     const content = await page.getTextContent();
     const positioned = content.items
       .filter((item) => "str" in item && item.str.trim())
-      .map((item) => ({ value: item.str.trim(), x: item.transform[4], y: item.transform[5] }))
+      .map((item) => ({ value: item.str.trim(), x: item.transform[4], y: item.transform[5], width: item.width }))
       .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x);
     positionedPages.push(positioned);
     const rows = [];
@@ -503,7 +671,9 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
   if (!lines.length) throw new Error("[V-P02] 글자가 없는 스캔 PDF입니다. 문자 인식(OCR)을 켜고 PDF로 다시 저장해 주세요.");
   onProgress(0.9, "품목과 금액을 구분하고 있어요…");
   for (const parser of [
+    teachermallPositionedPagesToOrder,
     mananPositionedPagesToOrder,
+    kyoboPositionedPagesToOrder,
     yes24PositionedPagesToOrder,
     gmarketPositionedPagesToOrder,
     elevenStreetPositionedPagesToOrder,
@@ -515,26 +685,4 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
   const order = parseOrderText(lines.join("\n"));
   order._extractedBy = "pdf-text";
   return order;
-}
-
-export async function importImage(file, onProgress = (progress, label) => { void progress; void label; }) {
-  onProgress(0.03, "한글 인식 모델을 준비하고 있어요…");
-  const tesseract = await import("tesseract.js");
-  const worker = await tesseract.createWorker(["kor", "eng"], tesseract.OEM.LSTM_ONLY, {
-    logger(message) {
-      if (typeof message.progress === "number") {
-        onProgress(Math.max(0.05, Math.min(0.92, message.progress)), "캡처에서 글자를 읽고 있어요…");
-      }
-    },
-  });
-  try {
-    await worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT, preserve_interword_spaces: "1" });
-    const result = await worker.recognize(file);
-    const order = parseOrderText(result.data.text);
-    order._warnings = [...new Set([...(order._warnings ?? []), "V09"] )];
-    order._extractedBy = "image-ocr";
-    return order;
-  } finally {
-    await worker.terminate();
-  }
 }

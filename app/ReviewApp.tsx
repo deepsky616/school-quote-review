@@ -58,11 +58,13 @@ const initialMeta: OrderMeta = {
 };
 
 const shoppingOrderLinks = [
-  { name: "아이스크림몰", href: "https://i-screammall.co.kr/", hint: "로그인 후 주문내역" },
-  { name: "쿠팡", href: "https://mc.coupang.com/ssr/desktop/order/list", hint: "주문목록" },
   { name: "G마켓", href: "https://myg.gmarket.co.kr/", hint: "나의 쇼핑정보" },
-  { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "마이페이지" },
   { name: "11번가", href: "https://www.11st.co.kr/", hint: "주문·배송조회" },
+  { name: "쿠팡", href: "https://mc.coupang.com/ssr/desktop/order/list", hint: "주문목록" },
+  { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "마이페이지" },
+  { name: "교보문고", href: "https://www.kyobobook.co.kr/", hint: "장바구니·주문결제" },
+  { name: "아이스크림몰", href: "https://i-screammall.co.kr/", hint: "로그인 후 주문내역" },
+  { name: "티처몰", href: "https://shop.teacherville.co.kr/", hint: "장바구니·주문결제" },
   { name: "만안문구센터", href: "https://www.mananmungu.co.kr/mall/index.php", hint: "장바구니·주문내역 PDF" },
 ];
 
@@ -396,6 +398,13 @@ export default function ReviewApp() {
     }
   };
 
+  const clearPastedOrder = () => {
+    setPasteText("");
+    setPasteTotal("");
+    setPasteKind("idle");
+    setPasteStatus("붙여넣은 내용을 모두 지웠습니다. 새 주문 화면을 붙여넣어 주세요.");
+  };
+
   const importQuickFile = async (file: File) => {
     if (file.size > 25 * 1024 * 1024) {
       setFileKind("error");
@@ -478,7 +487,10 @@ export default function ReviewApp() {
           {quickStartMode === "paste" ? (
             <div className="quick-start-panel" id="paste-method-panel" role="tabpanel" aria-labelledby="paste-method-tab">
               <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
-                <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
+                <header className="paste-form-heading">
+                  <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
+                  <button className="paste-clear-button" type="button" onClick={clearPastedOrder} disabled={!pasteText && !pasteTotal} aria-label="붙여넣은 주문내역 전체 지우기"><span aria-hidden="true">×</span> 전체 지우기</button>
+                </header>
                 <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
               </form>
               <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
@@ -489,7 +501,7 @@ export default function ReviewApp() {
               <div className="quick-file-guidance"><span aria-hidden="true">!</span><div><strong>만안문구처럼 주문 화면을 복사할 수 없을 때 사용하세요</strong><p>상품명·판매단가·수량·합계가 모두 보이는 주문 화면을 PDF로 저장해 올려 주세요.</p></div></div>
               <div className="import-method-comparison" aria-label="복사 붙여넣기와 PDF 방법 비교">
                 <section><span>기본 방법</span><strong>복사·붙여넣기</strong><p>상품 카드의 읽는 순서가 유지되어 가장 빠르고 정확합니다.</p></section>
-                <section><span>복사가 안 될 때</span><strong>주문 화면 PDF</strong><p>YES24·G마켓·아이스크림몰·11번가·만안문구센터 예시 구조를 전용 규칙으로 읽습니다.</p></section>
+                <section><span>복사가 안 될 때</span><strong>주문 화면 PDF</strong><p>YES24·교보문고·G마켓·아이스크림몰·11번가·만안문구센터·티처몰 예시 구조를 전용 규칙으로 읽습니다.</p></section>
               </div>
               <div className="pdf-save-guide" aria-labelledby="pdf-save-title">
                 <div className="pdf-save-heading"><div><span>가장 정확한 방법</span><h3 id="pdf-save-title">주문 화면을 PDF로 저장하는 방법</h3></div><em>Windows · Chrome · Edge</em></div>

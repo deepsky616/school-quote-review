@@ -3,7 +3,7 @@ const HEADER_LABEL = /^(상품|상품명|품명|내용|옵션|규격|수량|단�
 const CONTROL_LABEL = /^(장바구니|주문내역|주문상세|배송조회|리뷰쓰기|교환|반품|취소|문의|구매확정|다시 구매|닫기|확인)$/i;
 const FOREIGN_CURRENCY = /(?:US?D|JPY|EUR|CNY|[$€¥])/i;
 const MARKDOWN_LINK = /^\s*(?:[-*]\s*)?\[([^\]]+)\]\((https?:\/\/[^)]+)\)\s*$/i;
-const SITE_HEADER = /^(?:아이스크림몰|쿠팡|G마켓|YES24|11번가)(?:\s|$).*https?:\/\//i;
+const SITE_HEADER = /^(?:아이스크림몰|쿠팡|G마켓|YES24|11번가|티처몰|교보문고)(?:\s|$).*https?:\/\//i;
 const OPTION_LINE = /^(?:선택|색상|옵션)\s*[:：]?/i;
 const QUANTITY_UNITS = "개|세트|팩|박스|권|매|병|봉|묶음|식";
 
@@ -175,6 +175,149 @@ function elevenStreetProductItems(text) {
       });
       return [item, shipping];
     });
+}
+
+function teachermallProductItems(text) {
+  const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
+  const sourceUrl = sourceUrlFor(text, "teacherville.co.kr");
+  const documentText = lines.join(" ");
+  const isTeachermall = /shop\.teacherville\.co\.kr|티처몰/i.test(documentText)
+    || (/주문상품/.test(documentText) && /상품금액/.test(documentText)
+      && /할인금액/.test(documentText) && /할인적용금액/.test(documentText));
+  if (!isTeachermall) return [];
+
+  const productIndexes = lines.flatMap((line, index) => /^상품번호\s+\d+/i.test(line) ? [index] : []);
+  return productIndexes.flatMap((productIndex, position) => {
+    const productNumber = lines[productIndex].match(/^상품번호\s+(\d+)/i)?.[1] ?? "";
+    const block = lines.slice(productIndex + 1, productIndexes[position + 1] ?? lines.length);
+    const isProductName = (line) => (
+      !/^(?:옵션|비과세|택배|무료|변경|상품번호|[-–—]+$)/i.test(line)
+      && !/^\d{1,4}(?:\s+[\d,]+\s*원)?$/i.test(line)
+      && !/^[\d,]+\s*원(?:\s*\(선불\))?$/i.test(line)
+      && !/\(선불\)$/i.test(line)
+      && !moneyValues(line).length
+    );
+    const name = isProductName(block[0] ?? "")
+      ? block[0]
+      : block.find(isProductName) ?? "";
+
+    const optionIndex = block.findIndex((line) => /^옵션(?:\s|[:：]|$)/i.test(line));
+    const quantitySearchStart = optionIndex >= 0 ? optionIndex + 1 : 1;
+    const quantityIndex = block.findIndex((line, index) => (
+      index >= quantitySearchStart
+      && /^\d{1,4}(?=\s|$)/.test(line)
+      && (/^\d{1,4}$/.test(line) || moneyValues(line).length > 0)
+    ));
+    const quantityLine = block[quantityIndex] ?? "";
+    const quantity = toNumber(quantityLine.match(/^(\d{1,4})/)?.[1]);
+    const carrierIndex = quantityIndex >= 0
+      ? block.findIndex((line, index) => index > quantityIndex && /^택배(?:\s|$)/i.test(line))
+      : -1;
+    const changeIndex = quantityIndex >= 0
+      ? block.findIndex((line, index) => index > quantityIndex && /^변경$/i.test(line))
+      : -1;
+    const productValueEnd = carrierIndex >= 0 ? carrierIndex : changeIndex >= 0 ? changeIndex : block.length;
+    const amount = quantityIndex >= 0
+      ? block.slice(quantityIndex, productValueEnd).flatMap(moneyValues).at(-1) ?? 0
+      : 0;
+    if (!name || !quantity || !amount) return [];
+
+    const inlineSpec = optionIndex >= 0 ? block[optionIndex].replace(/^옵션\s*/i, "").trim() : "";
+    const spec = inlineSpec || (optionIndex >= 0 && quantityIndex > optionIndex
+      ? block.slice(optionIndex + 1, quantityIndex)
+        .filter((line) => !/^(?:비과세|[-–—]+)$/i.test(line))
+        .join(" · ")
+      : "");
+    const item = makeItem({
+      name,
+      spec,
+      unit: "개",
+      quantity,
+      amount,
+      sourceUrl,
+      raw: `상품번호 ${productNumber} | ${name} | ${quantity}개 | ${amount}원`,
+    });
+
+    const carrierLine = carrierIndex >= 0 ? block[carrierIndex] : "";
+    const inlineDelivery = carrierLine.replace(/^택배\s*/i, "").trim();
+    const shippingLine = inlineDelivery || (carrierIndex >= 0 ? block[carrierIndex + 1] ?? "" : "");
+    const shippingAmount = /원/i.test(shippingLine) ? moneyValues(shippingLine).at(-1) ?? 0 : 0;
+    if (!shippingAmount) return [item];
+    return [item, makeItem({
+      name: "배송비",
+      spec: "",
+      unit: "건",
+      quantity: 1,
+      amount: shippingAmount,
+      sourceUrl,
+      raw: `상품번호 ${productNumber} | ${shippingLine}`,
+    })];
+  });
+}
+
+const KYOBO_BOOK_LINE = /^\[(?:국내도서|보유외서|외국도서|eBook|오디오북|중고도서)\]\s*\S/i;
+
+const splitKyoboTitleLine = (line) => {
+  const cleaned = cleanScrapedLine(line);
+  const inline = cleaned.match(/^(.*\S)\s+(\d{1,4})\s*개(?:\s+([\d,]+\s*원))?\s*$/i);
+  return {
+    name: (inline?.[1] ?? cleaned).trim(),
+    quantity: toNumber(inline?.[2]),
+    amount: moneyValues(inline?.[3] ?? "")[0] ?? 0,
+  };
+};
+
+function kyoboProductItems(text) {
+  const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
+  const sourceUrl = sourceUrlFor(text, "kyobobook.co.kr");
+  const titleIndexes = lines.flatMap((line, index) => KYOBO_BOOK_LINE.test(line) ? [index] : []);
+  const looksLikeKyobo = /교보문고|kyobobook\.co\.kr/i.test(lines.join(" "))
+    || (titleIndexes.length > 0 && lines.some((line) => (
+      splitKyoboTitleLine(line).quantity > 0 || /^\d{1,4}\s*개(?:\s|$)/.test(line)
+    )));
+  if (!looksLikeKyobo) return [];
+
+  return titleIndexes.flatMap((titleIndex, position) => {
+    const title = splitKyoboTitleLine(lines[titleIndex]);
+    const name = title.name;
+    const previousTitleIndex = titleIndexes[position - 1];
+    if (previousTitleIndex === titleIndex - 1
+      && splitKyoboTitleLine(lines[previousTitleIndex]).name === name) return [];
+
+    let blockEnd = lines.length;
+    for (let cursor = titleIndex + 1; cursor < lines.length; cursor += 1) {
+      if (KYOBO_BOOK_LINE.test(lines[cursor]) && splitKyoboTitleLine(lines[cursor]).name !== name) {
+        blockEnd = cursor;
+        break;
+      }
+    }
+    const block = lines.slice(titleIndex + 1, blockEnd);
+    let repeatedTitleCount = 0;
+    while (repeatedTitleCount < block.length
+      && KYOBO_BOOK_LINE.test(block[repeatedTitleCount])
+      && splitKyoboTitleLine(block[repeatedTitleCount]).name === name) repeatedTitleCount += 1;
+    const repeatedTitles = [lines[titleIndex], ...block.slice(0, repeatedTitleCount)].map(splitKyoboTitleLine);
+    const inlineDetails = repeatedTitles.find((details) => details.quantity > 0);
+    const productBlock = block.slice(repeatedTitleCount);
+    const quantityIndex = productBlock.findIndex((line) => /^\d{1,4}\s*개(?:\s|$)/.test(line));
+    const quantityLine = quantityIndex >= 0 ? productBlock[quantityIndex] : "";
+    const quantity = inlineDetails?.quantity || toNumber(quantityLine.match(/^(\d{1,4})\s*개/)?.[1]);
+    const priceLines = inlineDetails?.quantity
+      ? productBlock
+      : quantityIndex >= 0 ? productBlock.slice(quantityIndex) : [];
+    const amount = inlineDetails?.amount || priceLines.flatMap(moneyValues)[0] || 0;
+    if (!quantity || !amount) return [];
+
+    return [makeItem({
+      name,
+      spec: "",
+      unit: "권",
+      quantity,
+      amount,
+      sourceUrl,
+      raw: [name, `${quantity}개`, ...priceLines.slice(0, 2)].join(" | "),
+    })];
+  });
 }
 
 function catalogProductItems(text) {
@@ -584,7 +727,13 @@ export function parseOrderText(text, options = {}) {
   const gmarketPlain = scraped.length ? [] : gmarketPlainProductItems(normalized);
   const yes24 = yes24ProductItems(normalized);
   const elevenStreet = elevenStreetProductItems(normalized);
-  const specialized = elevenStreet.length
+  const teachermall = teachermallProductItems(normalized);
+  const kyobo = kyoboProductItems(normalized);
+  const specialized = teachermall.length
+    ? teachermall
+    : kyobo.length
+    ? kyobo
+    : elevenStreet.length
     ? elevenStreet
     : [...scraped, ...catalog, ...coupang, ...gmarketPlain, ...yes24];
   const structured = lines.map(structuredItem).filter(Boolean);
@@ -619,7 +768,7 @@ export function parseOrderText(text, options = {}) {
   const detectedSourceUrl = options.sourceUrl || specialized.find((item) => item.sourceUrl)?.sourceUrl || (detectedTextUrl ? cleanScrapedUrl(detectedTextUrl) : undefined);
 
   return {
-    mall: elevenStreet.length ? "11번가" : yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
+    mall: teachermall.length ? "티처몰" : kyobo.length ? "교보문고" : elevenStreet.length ? "11번가" : yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
     sourceUrl: detectedSourceUrl || undefined,
     orderNo: findOrderNo(lines),
     capturedAt: new Date().toISOString(),

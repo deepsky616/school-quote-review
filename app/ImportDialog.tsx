@@ -206,7 +206,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
         {mode === "paste" && (
           <div className="import-panel" role="tabpanel">
             <div className="recommended-card paste-card">
-              <div className="recommended-label secondary-label">아이스크림몰 · 쿠팡 · G마켓 · YES24 · 11번가 자동 구분</div>
+              <div className="recommended-label secondary-label">아이스크림몰 · 쿠팡 · G마켓 · YES24 · 교보문고 · 11번가 · 티처몰 자동 구분</div>
               <h3>주문 화면을 그대로 복사해 붙여넣으세요</h3>
               <p>상품명·옵션·수량·최종 할인가를 묶어 읽습니다. 정가·할인율·쿠폰·적립금·판매자·배송상태는 상품명에서 제외하고, 금액이 있는 배송비는 별도 품목으로 만듭니다.</p>
               <textarea className="paste-area" value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={"여기를 누르고 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 최종 할인가 · 배송비가 포함된 주문 화면"} rows={7} />

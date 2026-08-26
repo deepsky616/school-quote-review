@@ -113,10 +113,15 @@ button { cursor: pointer; }
 .supported-malls-note strong { margin-right: 6px; color: #9a6918; }
 .link-import-form { margin-top: 24px; }
 .link-import-form > label { display: block; margin-bottom: 8px; color: #4e6057; font-size: 10px; font-weight: 900; }
+.paste-form-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.paste-form-heading label { color: #4e6057; font-size: 10px; font-weight: 900; }
 .link-import-form > div { display: grid; grid-template-columns: 1fr auto; padding: 6px; border: 1px solid #c5d5ca; border-radius: 13px; background: #fff; box-shadow: 0 6px 18px rgba(23,48,39,.06); }
 .link-import-form textarea { min-width: 0; padding: 11px 12px; border: 0; outline: none; resize: vertical; background: transparent; color: var(--ink); font: 13px/1.55 var(--font-geist-sans), sans-serif; }
 .link-import-form button { min-width: 148px; border: 1px solid var(--green-dark); border-radius: 9px; background: var(--green); color: #fff; font-size: 12px; font-weight: 850; }
 .link-import-form button:disabled { cursor: not-allowed; opacity: .48; }
+.link-import-form .paste-clear-button { min-width: 0; display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border: 1px solid #d7ded9; border-radius: 7px; background: #f8faf8; color: #6c7972; font-size: 9px; font-weight: 850; }
+.link-import-form .paste-clear-button:hover:not(:disabled) { border-color: #b7c7bd; background: #fff; color: #3f5c4e; }
+.paste-clear-button span { font-size: 13px; line-height: 1; }
 .paste-import-form > div { align-items: stretch; }
 .paste-import-form textarea { min-height: 166px; font-family: var(--font-geist-mono), monospace; }
 .paste-primary-actions { display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; margin-top: 11px; }
