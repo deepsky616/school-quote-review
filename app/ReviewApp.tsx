@@ -544,7 +544,7 @@ export default function ReviewApp() {
                     </ol>
                   </section>
                 </div>
-                <div className="paper-checklist"><strong>업로드 전 확인</strong><span>제품명·판매단가·수량·합계가 선명함</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
+                <div className="paper-checklist"><strong>업로드 전 확인</strong><span>순번·품목·수량·단가·공급가액(금액)이 선명함</span><span>순번이 없어도 표 머리글과 첫 품목이 함께 보임</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
                 <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기 화면에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요. 사진을 단순히 PDF로 바꾼 파일은 정확도가 낮습니다.</p>
               </div>
               <button className="quick-file-zone paper-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>

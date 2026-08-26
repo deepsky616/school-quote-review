@@ -202,7 +202,7 @@ const cellsNearRow = (cells, y, tolerance = 3) => cells
 const tidyPdfProductName = (value) => cleanPdfCell(value)
   .replace(/\s+([),])/g, "$1")
   .replace(/\(\s+/g, "(")
-  .replace(/(\d)\s+(개입|박스|자루|권|매|세트|팩|롤|속|개)/g, "$1$2")
+  .replace(/(\d)\s+(개입|박스|자루|권|매|세트|팩|롤|속|개)(?![가-힣A-Za-z0-9])/g, "$1$2")
   .replace(/\s+\S+\s*…$/u, "")
   .replace(/복합\s+기/g, "복합기")
   .trim();
@@ -639,6 +639,177 @@ export function iscreamPositionedPagesToOrder(positionedPages) {
   return positionedPdfOrder("아이스크림몰", "iscream-pdf-cards", items, documentedProductTotal || calculatedTotal);
 }
 
+const PAPER_QUOTE_HEADERS = {
+  sequence: /^(?:번호|순번|no\.?)$/i,
+  name: /^(?:품목|품명|내용|상품명|제품명|물품명)$/i,
+  quantity: /^(?:수량|주문수량)$/i,
+  unitPrice: /^(?:단가|판매단가|공급단가|가격)$/i,
+  amount: /^(?:공급가액|금액|예상금액|합계금액)$/i,
+  remark: /^비고$/i,
+};
+
+const paperHeaderKind = (value) => {
+  const normalized = normalizedHeader(value);
+  return Object.entries(PAPER_QUOTE_HEADERS)
+    .find(([, pattern]) => pattern.test(normalized))?.[0];
+};
+
+const pdfCellCenter = (cell) => cell.x + (Number(cell.width) || 0) / 2;
+
+const groupPaperRows = (cells, tolerance = 3) => {
+  const rows = [];
+  for (const cell of [...cells].sort((a, b) => Math.abs(b.y - a.y) > tolerance ? b.y - a.y : a.x - b.x)) {
+    const row = rows.find((candidate) => Math.abs(candidate.y - cell.y) <= tolerance);
+    if (row) row.cells.push(cell);
+    else rows.push({ y: cell.y, cells: [cell] });
+  }
+  return rows.map((row) => ({ ...row, cells: row.cells.sort((a, b) => a.x - b.x) }));
+};
+
+const joinPaperNameCells = (cells) => {
+  const rowTexts = groupPaperRows(cells).map((row) => row.cells.reduce((result, cell, index) => {
+    if (index === 0) return cell.value;
+    const previous = row.cells[index - 1];
+    const gap = cell.x - (previous.x + (Number(previous.width) || 0));
+    return `${result}${gap > 1.2 ? " " : ""}${cell.value}`;
+  }, ""));
+  return tidyPdfProductName(rowTexts.reduce((result, rowText) => {
+    if (!result) return rowText;
+    return `${result}${/[가-힣]$/u.test(result) && /^[가-힣]$/u.test(rowText) ? "" : " "}${rowText}`;
+  }, ""));
+};
+
+export function paperQuotePositionedPagesToOrder(positionedPages) {
+  const pages = normalizedPdfPages(positionedPages);
+  const documentText = pdfDocumentText(positionedPages);
+  const compactDocumentText = documentText.replace(/\s+/g, "");
+  const productItems = [];
+
+  for (const cells of pages) {
+    const headerCandidates = groupPaperRows(cells).map((row) => {
+      const columns = {};
+      for (const cell of row.cells) {
+        const kind = paperHeaderKind(cell.value);
+        if (kind && !columns[kind]) columns[kind] = cell;
+      }
+      const required = [columns.quantity, columns.unitPrice, columns.amount].filter(Boolean).length;
+      const context = [columns.sequence, columns.name, columns.remark].filter(Boolean).length;
+      return { ...row, columns, score: required * 10 + context };
+    }).filter((candidate) => candidate.score >= 31)
+      .sort((a, b) => b.score - a.score || b.y - a.y);
+    const header = headerCandidates[0];
+    if (!header) continue;
+
+    const quantityCenter = pdfCellCenter(header.columns.quantity);
+    const unitPriceCenter = pdfCellCenter(header.columns.unitPrice);
+    const amountCenter = pdfCellCenter(header.columns.amount);
+    if (!(quantityCenter < unitPriceCenter && unitPriceCenter < amountCenter)) continue;
+
+    const unitPriceLeft = (quantityCenter + unitPriceCenter) / 2;
+    const amountLeft = (unitPriceCenter + amountCenter) / 2;
+    const amountRight = header.columns.remark
+      ? (amountCenter + pdfCellCenter(header.columns.remark)) / 2
+      : Number.POSITIVE_INFINITY;
+    const quantityWidth = Math.max(12, (unitPriceCenter - quantityCenter) * 0.45);
+    const nameRight = quantityCenter - quantityWidth;
+    const sequenceCenter = header.columns.sequence ? pdfCellCenter(header.columns.sequence) : 0;
+    const nameLeft = header.columns.sequence
+      ? sequenceCenter + Math.max(7, (nameRight - sequenceCenter) * 0.035)
+      : Math.min(...cells.map((cell) => cell.x)) - 1;
+
+    const totalLabels = cells
+      .filter((cell) => cell.y < header.y - 3 && /^(?:합계|총계)$/i.test(cell.value))
+      .sort((a, b) => b.y - a.y);
+    const totalY = totalLabels[0]?.y;
+    const insideDataRows = (cell) => cell.y < header.y - 3 && (totalY == null || cell.y > totalY + 3);
+    const sequenceCandidates = header.columns.sequence ? cells
+      .filter((cell) => insideDataRows(cell) && cell.x < nameLeft && /^\d{1,4}$/.test(cell.value))
+      .map((cell) => ({ ...cell, order: Number(cell.value) }))
+      .filter((cell) => cell.order > 0 && cell.order <= 999)
+      .sort((a, b) => b.y - a.y) : [];
+    const sequenceAnchors = sequenceCandidates.filter((cell, index, candidates) => (
+      index === 0 || cell.order > candidates[index - 1].order
+    ));
+    const quantityAnchors = cells
+      .filter((cell) => insideDataRows(cell)
+        && cell.x >= nameRight && cell.x < unitPriceLeft
+        && /^\d{1,4}$/.test(cell.value))
+      .sort((a, b) => b.y - a.y);
+    const anchors = sequenceAnchors.length ? sequenceAnchors : quantityAnchors;
+    if (!anchors.length) continue;
+
+    const pageItems = anchors.flatMap((anchor, index) => {
+      const upperY = index === 0 ? header.y - 3 : (anchors[index - 1].y + anchor.y) / 2;
+      const lowerY = index === anchors.length - 1
+        ? (totalY == null ? anchor.y - 24 : totalY + 3)
+        : (anchor.y + anchors[index + 1].y) / 2;
+      const region = cells.filter((cell) => cell.y < upperY && cell.y >= lowerY);
+      const nameCells = region
+        .filter((cell) => cell.x >= nameLeft && cell.x < nameRight)
+        .filter((cell) => !paperHeaderKind(cell.value))
+        .filter((cell) => !/^(?:합계|총계|소계|배송비|포장비|분철비|반품비)$/i.test(cell.value));
+      const name = joinPaperNameCells(nameCells);
+      const quantityCell = region
+        .filter((cell) => cell.x >= nameRight && cell.x < unitPriceLeft && /^\d{1,4}$/.test(cell.value))
+        .sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y))[0];
+      const unitPriceCell = region
+        .filter((cell) => cell.x >= unitPriceLeft && cell.x < amountLeft && pdfMoney(cell.value) > 0)
+        .sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y))[0];
+      const amountCell = region
+        .filter((cell) => cell.x >= amountLeft && cell.x < amountRight && pdfMoney(cell.value) > 0)
+        .sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y))[0];
+      const quantity = Number(quantityCell?.value ?? 0);
+      const unitPrice = pdfMoney(unitPriceCell?.value);
+      const amount = pdfMoney(amountCell?.value);
+      if (!name || !quantity || !unitPrice || !amount) return [];
+      return [{
+        내용: name,
+        규격: "",
+        단위: /예스24|예스이십사|YES24|서적/i.test(compactDocumentText) ? "권" : "개",
+        수량: quantity,
+        단가: unitPrice,
+        금액: amount,
+        _rawName: `${header.columns.sequence ? `${anchor.value} | ` : ""}${name} | ${quantity} | ${unitPriceCell.value} | ${amountCell.value}`,
+        _warnings: amount === quantity * unitPrice ? [] : ["V06"],
+        excluded: false,
+      }];
+    });
+    if (pageItems.length !== anchors.length) return null;
+    productItems.push(...pageItems);
+  }
+
+  if (!productItems.length) return null;
+  const feeItems = pages.flatMap((cells) => groupPaperRows(cells).flatMap((row) => {
+    const labels = row.cells
+      .filter((cell) => /^(?:배송비|포장비|분철비|반품비)$/i.test(cell.value))
+      .sort((a, b) => a.x - b.x);
+    return labels.flatMap((label, index) => {
+      const right = labels[index + 1]?.x ?? Number.POSITIVE_INFINITY;
+      const amountCell = row.cells
+        .filter((cell) => cell.x > label.x && cell.x < right && pdfMoney(cell.value) >= 0)
+        .sort((a, b) => a.x - b.x)
+        .find((cell) => /\d/.test(cell.value));
+      const amount = pdfMoney(amountCell?.value);
+      return amount > 0 ? [{
+        내용: label.value, 규격: "", 단위: "건", 수량: 1, 단가: amount, 금액: amount,
+        _rawName: `${label.value} ${amount}원`, _warnings: [], excluded: false,
+      }] : [];
+    });
+  }));
+  const items = [...productItems, ...feeItems];
+  const totalCandidates = pages.flatMap((cells) => cells
+    .filter((cell) => /^(?:합계|총계|총액)$/i.test(cell.value))
+    .flatMap((label) => pdfMoneyValues(cellsNearRow(cells, label.y, 3)
+      .filter((cell) => cell.x >= label.x)
+      .map((cell) => cell.value)
+      .join(" "))));
+  const documentedTotal = totalCandidates.length ? Math.max(...totalCandidates) : 0;
+  const mall = /예스24|예스이십사|YES24/i.test(compactDocumentText)
+    ? "YES24 견적서"
+    : "종이 견적서·영수증";
+  return positionedPdfOrder(mall, "paper-quote-pdf-table", items, documentedTotal);
+}
+
 export async function importPdf(file, onProgress = (progress, label) => { void progress; void label; }) {
   onProgress(0.08, "PDF 글자를 읽고 있어요…");
   const pdfjs = await import("pdfjs-dist");
@@ -678,6 +849,7 @@ export async function importPdf(file, onProgress = (progress, label) => { void p
     gmarketPositionedPagesToOrder,
     elevenStreetPositionedPagesToOrder,
     iscreamPositionedPagesToOrder,
+    paperQuotePositionedPagesToOrder,
   ]) {
     const positionedOrder = parser(positionedPages);
     if (positionedOrder) return positionedOrder;

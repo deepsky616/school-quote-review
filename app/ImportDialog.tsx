@@ -253,7 +253,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
                   </ol>
                 </section>
               </div>
-              <div className="paper-checklist"><strong>저장 후 확인</strong><span>상품명·단가·수량·합계가 선명함</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
+              <div className="paper-checklist"><strong>저장 후 확인</strong><span>순번·품목·수량·단가·공급가액(금액)이 선명함</span><span>순번이 없으면 표 머리글과 첫 품목이 함께 보임</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
               <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요.</p>
             </div>
             <button className="drop-zone paper-drop-zone" type="button" onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>

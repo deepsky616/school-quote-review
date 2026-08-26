@@ -9,6 +9,7 @@ import {
   iscreamPositionedPagesToOrder,
   kyoboPositionedPagesToOrder,
   mananPositionedPagesToOrder,
+  paperQuotePositionedPagesToOrder,
   spreadsheetRowsToOrder,
   teachermallPositionedPagesToOrder,
   yes24PositionedPagesToOrder,
@@ -319,6 +320,48 @@ test("만안문구 PDF 표는 상품명·판매단가·수량·합계를 위치�
   assert.deepEqual(order.items.map((item) => item.수량), [10, 1, 6, 2, 2, 179, 22]);
   assert.deepEqual(order.items.map((item) => item.단가), [6800, 1300, 900, 3200, 3200, 800, 800]);
   assert.deepEqual(order.items.map((item) => item.금액), [68000, 1300, 5400, 6400, 6400, 143200, 17600]);
+});
+
+test("종이 견적서 PDF는 순번 다음 상품명·수량·단가·공급가액을 행별로 읽는다", () => {
+  const cell = (value, x, y, width = 10) => ({ value, x, y, width });
+  const order = paperQuotePositionedPagesToOrder([[
+    cell("예스24", 300, 700),
+    cell("번호", 60, 600, 20), cell("품목", 220, 600, 40), cell("수량", 400, 600, 20), cell("단가", 450, 600, 20), cell("공급가액", 500, 600, 50),
+    cell("1", 65, 580), cell("교사의", 90, 579, 35), cell("말", 130, 579), cell("연습", 145, 579, 20), cell("1", 407, 580), cell("15,120", 442, 579, 34), cell("원", 476, 579), cell("15,120", 500, 579, 34), cell("원", 534, 579),
+    cell("2", 65, 560), cell("교사를", 90, 559, 35), cell("지키는", 130, 559, 35), cell("단단한", 170, 559, 35), cell("학급경영", 210, 559, 45), cell("2", 407, 560), cell("16,200", 442, 559, 34), cell("원", 476, 559), cell("32,400", 500, 559, 34), cell("원", 534, 559),
+    cell("3", 65, 530), cell("2022 개정과 IB 교육 철학을 적용한 초등 개념기반 탐구수업·서술형평가 설계와 실", 90, 540, 285), cell("천", 90, 521, 10), cell("1", 407, 530), cell("18,900", 442, 529, 34), cell("원", 476, 529), cell("18,900", 500, 529, 34), cell("원", 534, 529),
+    cell("합계", 220, 500, 20), cell("4", 407, 500), cell("66,420", 500, 500, 34), cell("원", 534, 500),
+  ]]);
+
+  assert.ok(order);
+  assert.equal(order.mall, "YES24 견적서");
+  assert.equal(order._extractedBy, "paper-quote-pdf-table");
+  assert.equal(order.paidTotal, 66420);
+  assert.deepEqual(order.items.map((item) => [item.내용, item.규격, item.단위, item.수량, item.단가, item.금액]), [
+    ["교사의 말 연습", "", "권", 1, 15120, 15120],
+    ["교사를 지키는 단단한 학급경영", "", "권", 2, 16200, 32400],
+    ["2022 개정과 IB 교육 철학을 적용한 초등 개념기반 탐구수업·서술형평가 설계와 실천", "", "권", 1, 18900, 18900],
+  ]);
+  assert.deepEqual(order._warnings, []);
+});
+
+test("순번 없는 종이 견적서는 공급가액·비고 헤더 다음 품목부터 읽는다", () => {
+  const cell = (value, x, y, width = 10) => ({ value, x, y, width });
+  const order = paperQuotePositionedPagesToOrder([[
+    cell("견적서", 40, 700),
+    cell("품목", 120, 600, 30), cell("수량", 350, 600, 20), cell("단가", 420, 600, 20), cell("공급가액", 490, 600, 40), cell("비고", 550, 600, 20),
+    cell("복사용지 A4", 60, 580, 75), cell("2", 356, 580), cell("12,000", 420, 580, 35), cell("원", 455, 580), cell("24,000", 500, 580, 35), cell("원", 535, 580),
+    cell("네임펜 검정", 60, 560, 75), cell("3", 356, 560), cell("800", 420, 560, 18), cell("원", 438, 560), cell("2,400", 500, 560, 30), cell("원", 530, 560),
+    cell("합계", 200, 540, 20), cell("26,400", 500, 540, 35), cell("원", 535, 540),
+  ]]);
+
+  assert.ok(order);
+  assert.equal(order.mall, "종이 견적서·영수증");
+  assert.deepEqual(order.items.map((item) => [item.내용, item.수량, item.단가, item.금액]), [
+    ["복사용지 A4", 2, 12000, 24000],
+    ["네임펜 검정", 3, 800, 2400],
+  ]);
+  assert.deepEqual(order._warnings, []);
 });
 
 test("쇼핑몰별 주문 화면 PDF는 좌표 구조에 맞춰 상품명·할인가·배송비를 읽는다", () => {
