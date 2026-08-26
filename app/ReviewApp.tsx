@@ -491,7 +491,7 @@ export default function ReviewApp() {
                   <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
                   <button className="paste-clear-button" type="button" onClick={clearPastedOrder} disabled={!pasteText && !pasteTotal} aria-label="붙여넣은 주문내역 전체 지우기"><span aria-hidden="true">×</span> 전체 지우기</button>
                 </header>
-                <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면 전체를 복사하면 상품명·수량·최종 할인가·배송비를 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 할인가 · 배송비가 함께 있어도 됩니다."} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
+                <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면이나 번호·품목·수량·단가·공급가액 표를 붙이면 열을 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 할인가 · 배송비 또는 번호 · 품목 · 수량 · 단가 · 공급가액 표"} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
               </form>
               <div className={`link-status ${pasteKind}`} aria-live="polite"><span aria-hidden="true" />{pasteStatus}</div>
               <div className="paste-primary-actions"><label>결제 총액 <span>선택</span><input type="number" min="0" step="1" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label></div>
@@ -544,7 +544,7 @@ export default function ReviewApp() {
                     </ol>
                   </section>
                 </div>
-                <div className="paper-checklist"><strong>업로드 전 확인</strong><span>순번·품목·수량·단가·공급가액(금액)이 선명함</span><span>순번이 없어도 표 머리글과 첫 품목이 함께 보임</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
+                <div className="paper-checklist"><strong>업로드 전 확인</strong><span>번호·품목·규격·수량·단위·단가·공급가액(금액)이 선명함</span><span>비슷한 열 이름과 두 줄 머리글도 자동 인식</span><span>순번이 없어도 표 머리글과 첫 품목이 함께 보임</span><span>PDF에서 글자를 선택하거나 검색할 수 있음</span><span>페이지가 기울거나 잘리지 않음</span></div>
                 <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기 화면에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요. 사진을 단순히 PDF로 바꾼 파일은 정확도가 낮습니다.</p>
               </div>
               <button className="quick-file-zone paper-file-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropQuickFile}>

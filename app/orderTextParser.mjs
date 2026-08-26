@@ -320,6 +320,49 @@ function kyoboProductItems(text) {
   });
 }
 
+function paperTableTextItems(text) {
+  const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
+  const headerIndex = lines.findIndex((line) => {
+    const header = line.replace(/\s+/g, "");
+    return /(?:번호|순번|일련번호|no\.?).*(?:품목|품명|내역|내용|상품명)/i.test(header)
+      && /수량/.test(header)
+      && /(?:단가|판매단가|공급단가)/.test(header)
+      && /(?:공급가액|공급액|금액)/.test(header);
+  });
+  if (headerIndex < 0) return [];
+
+  const items = [];
+  let bufferedRow = "";
+  for (const line of lines.slice(headerIndex + 1)) {
+    if (/^(?:합계|총계|소계|총액)(?:\s|$)/i.test(line)) break;
+    const continuesSplitKoreanWord = /[가-힣]$/u.test(bufferedRow) && /^[가-힣]{1,2}$/u.test(line);
+    bufferedRow = bufferedRow ? `${bufferedRow}${continuesSplitKoreanWord ? "" : " "}${line}` : line;
+    const row = bufferedRow.match(/^(\d{1,4})\s+(.+?)\s+(\d{1,4})\s+([\d,]+)\s*원\s+([\d,]+)\s*원(?:\s.*)?$/i);
+    if (!row) continue;
+
+    const sequence = toNumber(row[1]);
+    const name = cleanScrapedLine(row[2]);
+    const quantity = toNumber(row[3]);
+    const unitPrice = toNumber(row[4]);
+    const amount = toNumber(row[5]);
+    if (sequence > 0 && sequence <= 999 && name && quantity > 0 && unitPrice > 0 && amount > 0) {
+      items.push({
+        내용: name,
+        규격: "",
+        단위: /예스24|예스이십사|YES24|서적/i.test(lines.join(" ")) ? "권" : "개",
+        수량: quantity,
+        단가: unitPrice,
+        금액: amount,
+        _rawName: `${sequence} | ${name} | ${quantity} | ${unitPrice}원 | ${amount}원`,
+        _warnings: amount === quantity * unitPrice ? [] : ["V06"],
+        excluded: false,
+      });
+      bufferedRow = "";
+    }
+  }
+  return items;
+}
+
 function catalogProductItems(text) {
   const lines = String(text ?? "").split("\n").map(cleanScrapedLine).filter(Boolean);
   const quantityIndexes = lines.flatMap((line, index) => (
@@ -729,12 +772,15 @@ export function parseOrderText(text, options = {}) {
   const elevenStreet = elevenStreetProductItems(normalized);
   const teachermall = teachermallProductItems(normalized);
   const kyobo = kyoboProductItems(normalized);
+  const paperTable = paperTableTextItems(normalized);
   const specialized = teachermall.length
     ? teachermall
     : kyobo.length
     ? kyobo
     : elevenStreet.length
     ? elevenStreet
+    : paperTable.length
+    ? paperTable
     : [...scraped, ...catalog, ...coupang, ...gmarketPlain, ...yes24];
   const structured = lines.map(structuredItem).filter(Boolean);
   const candidates = specialized.length
@@ -768,7 +814,7 @@ export function parseOrderText(text, options = {}) {
   const detectedSourceUrl = options.sourceUrl || specialized.find((item) => item.sourceUrl)?.sourceUrl || (detectedTextUrl ? cleanScrapedUrl(detectedTextUrl) : undefined);
 
   return {
-    mall: teachermall.length ? "티처몰" : kyobo.length ? "교보문고" : elevenStreet.length ? "11번가" : yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
+    mall: teachermall.length ? "티처몰" : kyobo.length ? "교보문고" : elevenStreet.length ? "11번가" : paperTable.length ? "표 형식 견적서" : yes24.length ? "YES24" : mallFromUrl(detectedSourceUrl),
     sourceUrl: detectedSourceUrl || undefined,
     orderNo: findOrderNo(lines),
     capturedAt: new Date().toISOString(),

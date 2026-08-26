@@ -640,12 +640,15 @@ export function iscreamPositionedPagesToOrder(positionedPages) {
 }
 
 const PAPER_QUOTE_HEADERS = {
-  sequence: /^(?:번호|순번|no\.?)$/i,
-  name: /^(?:품목|품명|내용|상품명|제품명|물품명)$/i,
-  quantity: /^(?:수량|주문수량)$/i,
-  unitPrice: /^(?:단가|판매단가|공급단가|가격)$/i,
-  amount: /^(?:공급가액|금액|예상금액|합계금액)$/i,
-  remark: /^비고$/i,
+  sequence: /^(?:번호|순번|일련번호|no\.?|번호\(no\.?\))$/i,
+  name: /^(?:품목|품목명|품명|내역|내용|상품|상품명|제품|제품명|물품|물품명)$/i,
+  spec: /^(?:규격|규격명|사양|옵션|모델|모델명)$/i,
+  quantity: /^(?:수량|주문수량|수|qty\.?|q['’]?ty\.?|수량\(ea\))$/i,
+  unit: /^(?:단위|단위명|unit)$/i,
+  unitPrice: /^(?:단가|판매단가|공급단가|단위가격|개당가격|가격)$/i,
+  amount: /^(?:공급가액|공급액|금액|예상금액|합계금액|판매금액|총금액)$/i,
+  tax: /^(?:세액|부가세|vat)$/i,
+  remark: /^(?:비고|적요)$/i,
 };
 
 const paperHeaderKind = (value) => {
@@ -655,6 +658,51 @@ const paperHeaderKind = (value) => {
 };
 
 const pdfCellCenter = (cell) => cell.x + (Number(cell.width) || 0) / 2;
+
+const mergePaperCells = (cells) => {
+  const ordered = [...cells].sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x);
+  const left = Math.min(...ordered.map((cell) => cell.x));
+  const right = Math.max(...ordered.map((cell) => cell.x + (Number(cell.width) || 0)));
+  return {
+    value: ordered.map((cell) => cell.value).join(""),
+    x: left,
+    y: ordered.reduce((sum, cell) => sum + cell.y, 0) / ordered.length,
+    width: right - left,
+  };
+};
+
+const paperHeaderFragments = (cells, rowY) => {
+  const nearby = cells.filter((cell) => Math.abs(cell.y - rowY) <= 10);
+  const fragments = [...nearby];
+  const sameRows = groupPaperRows(nearby);
+  for (const row of sameRows) {
+    for (let start = 0; start < row.cells.length; start += 1) {
+      for (let length = 2; length <= 3 && start + length <= row.cells.length; length += 1) {
+        const parts = row.cells.slice(start, start + length);
+        const hasLargeGap = parts.slice(1).some((cell, index) => (
+          cell.x - (parts[index].x + (Number(parts[index].width) || 0)) > 12
+        ));
+        if (!hasLargeGap) fragments.push(mergePaperCells(parts));
+      }
+    }
+  }
+  for (let first = 0; first < nearby.length; first += 1) {
+    for (let second = first + 1; second < nearby.length; second += 1) {
+      const a = nearby[first];
+      const b = nearby[second];
+      const verticalGap = Math.abs(a.y - b.y);
+      const centerGap = Math.abs(pdfCellCenter(a) - pdfCellCenter(b));
+      if (verticalGap > 3 && verticalGap <= 14 && centerGap <= Math.max(8, Math.min(Number(a.width) || 0, Number(b.width) || 0) / 2)) {
+        fragments.push(mergePaperCells([a, b]));
+      }
+    }
+  }
+  return fragments.filter((cell, index, candidates) => candidates.findIndex((candidate) => (
+    normalizedHeader(candidate.value) === normalizedHeader(cell.value)
+      && Math.abs(candidate.x - cell.x) < 0.5
+      && Math.abs(pdfCellCenter(candidate) - pdfCellCenter(cell)) < 0.5
+  )) === index);
+};
 
 const groupPaperRows = (cells, tolerance = 3) => {
   const rows = [];
@@ -679,43 +727,97 @@ const joinPaperNameCells = (cells) => {
   }, ""));
 };
 
+const paperHeaderForPage = (cells) => groupPaperRows(cells).map((row) => {
+  const columns = {};
+  for (const cell of paperHeaderFragments(cells, row.y)) {
+    const kind = paperHeaderKind(cell.value);
+    if (!kind) continue;
+    const current = columns[kind];
+    if (!current || Math.abs(cell.y - row.y) < Math.abs(current.y - row.y)) columns[kind] = cell;
+  }
+  const required = [columns.quantity, columns.unitPrice, columns.amount].filter(Boolean).length;
+  const context = [columns.sequence, columns.name, columns.spec, columns.unit, columns.tax, columns.remark].filter(Boolean).length;
+  return { ...row, columns, score: required * 10 + context };
+}).filter((candidate) => candidate.score >= 31)
+  .sort((a, b) => b.score - a.score || b.y - a.y)[0];
+
+const paperColumnLayout = (header, cells) => {
+  const quantityCenter = pdfCellCenter(header.columns.quantity);
+  const unitCenter = header.columns.unit ? pdfCellCenter(header.columns.unit) : null;
+  const unitPriceCenter = pdfCellCenter(header.columns.unitPrice);
+  const amountCenter = pdfCellCenter(header.columns.amount);
+  if (!(quantityCenter < unitPriceCenter && unitPriceCenter < amountCenter)) return null;
+  if (unitCenter != null && !(quantityCenter < unitCenter && unitCenter < unitPriceCenter)) return null;
+
+  const quantityLeft = header.columns.spec
+    ? (pdfCellCenter(header.columns.spec) + quantityCenter) / 2
+    : quantityCenter - Math.max(12, (unitPriceCenter - quantityCenter) * 0.45);
+  const quantityRight = unitCenter == null
+    ? (quantityCenter + unitPriceCenter) / 2
+    : (quantityCenter + unitCenter) / 2;
+  const unitLeft = unitCenter == null ? null : quantityRight;
+  const unitRight = unitCenter == null ? null : (unitCenter + unitPriceCenter) / 2;
+  const unitPriceLeft = unitCenter == null ? quantityRight : unitRight;
+  const amountLeft = (unitPriceCenter + amountCenter) / 2;
+  const trailingColumns = [header.columns.tax, header.columns.remark]
+    .filter(Boolean)
+    .map(pdfCellCenter)
+    .filter((center) => center > amountCenter);
+  const amountRight = trailingColumns.length
+    ? (amountCenter + Math.min(...trailingColumns)) / 2
+    : Number.POSITIVE_INFINITY;
+  const specCenter = header.columns.spec ? pdfCellCenter(header.columns.spec) : null;
+  const nameCenter = header.columns.name ? pdfCellCenter(header.columns.name) : null;
+  const specLeft = specCenter == null ? null : nameCenter != null && nameCenter < specCenter
+    ? (nameCenter + specCenter) / 2
+    : specCenter - Math.max(12, (quantityCenter - specCenter) * 0.45);
+  const nameRight = specLeft ?? quantityLeft;
+  const sequenceCenter = header.columns.sequence ? pdfCellCenter(header.columns.sequence) : 0;
+  const sequenceRight = header.columns.sequence
+    ? header.columns.sequence.x + (Number(header.columns.sequence.width) || 0)
+    : 0;
+  const nameLeft = header.columns.sequence
+    ? sequenceRight + Math.max(3, (nameRight - sequenceCenter) * 0.01)
+    : Math.min(...cells.map((cell) => cell.x)) - 1;
+  return {
+    quantityCenter, unitPriceCenter, amountCenter, quantityLeft, quantityRight,
+    unitLeft, unitRight, unitPriceLeft, amountLeft, amountRight,
+    specLeft, specRight: specCenter == null ? null : quantityLeft,
+    nameLeft, nameRight,
+  };
+};
+
+const normalizedPaperUnit = (value, fallback) => {
+  const unit = cleanPdfCell(value).replace(/[()]/g, "").trim();
+  if (!unit) return fallback;
+  if (/^(?:ea|pcs?)$/i.test(unit)) return "개";
+  if (/^(?:set|sets)$/i.test(unit)) return "세트";
+  if (/^(?:box|boxes)$/i.test(unit)) return "박스";
+  if (/^(?:book|books)$/i.test(unit)) return "권";
+  return unit;
+};
+
 export function paperQuotePositionedPagesToOrder(positionedPages) {
   const pages = normalizedPdfPages(positionedPages);
   const documentText = pdfDocumentText(positionedPages);
   const compactDocumentText = documentText.replace(/\s+/g, "");
   const productItems = [];
+  let carriedHeader = null;
 
   for (const cells of pages) {
-    const headerCandidates = groupPaperRows(cells).map((row) => {
-      const columns = {};
-      for (const cell of row.cells) {
-        const kind = paperHeaderKind(cell.value);
-        if (kind && !columns[kind]) columns[kind] = cell;
-      }
-      const required = [columns.quantity, columns.unitPrice, columns.amount].filter(Boolean).length;
-      const context = [columns.sequence, columns.name, columns.remark].filter(Boolean).length;
-      return { ...row, columns, score: required * 10 + context };
-    }).filter((candidate) => candidate.score >= 31)
-      .sort((a, b) => b.score - a.score || b.y - a.y);
-    const header = headerCandidates[0];
+    const detectedHeader = paperHeaderForPage(cells);
+    if (detectedHeader) carriedHeader = detectedHeader;
+    const header = detectedHeader ?? (carriedHeader ? {
+      ...carriedHeader,
+      y: Math.max(...cells.map((cell) => cell.y)) + 6,
+    } : null);
     if (!header) continue;
-
-    const quantityCenter = pdfCellCenter(header.columns.quantity);
-    const unitPriceCenter = pdfCellCenter(header.columns.unitPrice);
-    const amountCenter = pdfCellCenter(header.columns.amount);
-    if (!(quantityCenter < unitPriceCenter && unitPriceCenter < amountCenter)) continue;
-
-    const unitPriceLeft = (quantityCenter + unitPriceCenter) / 2;
-    const amountLeft = (unitPriceCenter + amountCenter) / 2;
-    const amountRight = header.columns.remark
-      ? (amountCenter + pdfCellCenter(header.columns.remark)) / 2
-      : Number.POSITIVE_INFINITY;
-    const quantityWidth = Math.max(12, (unitPriceCenter - quantityCenter) * 0.45);
-    const nameRight = quantityCenter - quantityWidth;
-    const sequenceCenter = header.columns.sequence ? pdfCellCenter(header.columns.sequence) : 0;
-    const nameLeft = header.columns.sequence
-      ? sequenceCenter + Math.max(7, (nameRight - sequenceCenter) * 0.035)
-      : Math.min(...cells.map((cell) => cell.x)) - 1;
+    const layout = paperColumnLayout(header, cells);
+    if (!layout) continue;
+    const {
+      quantityLeft, quantityRight, unitLeft, unitRight, unitPriceLeft,
+      amountLeft, amountRight, specLeft, specRight, nameLeft, nameRight,
+    } = layout;
 
     const totalLabels = cells
       .filter((cell) => cell.y < header.y - 3 && /^(?:합계|총계)$/i.test(cell.value))
@@ -732,7 +834,7 @@ export function paperQuotePositionedPagesToOrder(positionedPages) {
     ));
     const quantityAnchors = cells
       .filter((cell) => insideDataRows(cell)
-        && cell.x >= nameRight && cell.x < unitPriceLeft
+        && cell.x >= quantityLeft && cell.x < quantityRight
         && /^\d{1,4}$/.test(cell.value))
       .sort((a, b) => b.y - a.y);
     const anchors = sequenceAnchors.length ? sequenceAnchors : quantityAnchors;
@@ -749,8 +851,15 @@ export function paperQuotePositionedPagesToOrder(positionedPages) {
         .filter((cell) => !paperHeaderKind(cell.value))
         .filter((cell) => !/^(?:합계|총계|소계|배송비|포장비|분철비|반품비)$/i.test(cell.value));
       const name = joinPaperNameCells(nameCells);
+      const spec = specLeft == null ? "" : joinPaperNameCells(region
+        .filter((cell) => cell.x >= specLeft && cell.x < specRight)
+        .filter((cell) => !paperHeaderKind(cell.value)));
       const quantityCell = region
-        .filter((cell) => cell.x >= nameRight && cell.x < unitPriceLeft && /^\d{1,4}$/.test(cell.value))
+        .filter((cell) => cell.x >= quantityLeft && cell.x < quantityRight && /^\d{1,4}$/.test(cell.value))
+        .sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y))[0];
+      const unitCell = unitLeft == null ? null : region
+        .filter((cell) => cell.x >= unitLeft && cell.x < unitRight)
+        .filter((cell) => !paperHeaderKind(cell.value))
         .sort((a, b) => Math.abs(a.y - anchor.y) - Math.abs(b.y - anchor.y))[0];
       const unitPriceCell = region
         .filter((cell) => cell.x >= unitPriceLeft && cell.x < amountLeft && pdfMoney(cell.value) > 0)
@@ -764,8 +873,8 @@ export function paperQuotePositionedPagesToOrder(positionedPages) {
       if (!name || !quantity || !unitPrice || !amount) return [];
       return [{
         내용: name,
-        규격: "",
-        단위: /예스24|예스이십사|YES24|서적/i.test(compactDocumentText) ? "권" : "개",
+        규격: spec,
+        단위: normalizedPaperUnit(unitCell?.value, /예스24|예스이십사|YES24|서적/i.test(compactDocumentText) ? "권" : "개"),
         수량: quantity,
         단가: unitPrice,
         금액: amount,

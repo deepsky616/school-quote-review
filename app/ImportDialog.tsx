@@ -209,7 +209,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
               <div className="recommended-label secondary-label">아이스크림몰 · 쿠팡 · G마켓 · YES24 · 교보문고 · 11번가 · 티처몰 자동 구분</div>
               <h3>주문 화면을 그대로 복사해 붙여넣으세요</h3>
               <p>상품명·옵션·수량·최종 할인가를 묶어 읽습니다. 정가·할인율·쿠폰·적립금·판매자·배송상태는 상품명에서 제외하고, 금액이 있는 배송비는 별도 품목으로 만듭니다.</p>
-              <textarea className="paste-area" value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={"여기를 누르고 Ctrl+V\n\n상품명 · 옵션 · 수량 · 정가 · 최종 할인가 · 배송비가 포함된 주문 화면"} rows={7} />
+              <textarea className="paste-area" value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={"여기를 누르고 Ctrl+V\n\n상품명 · 옵션 · 수량 · 최종 할인가 · 배송비가 포함된 주문 화면 또는 번호 · 품목 · 수량 · 단가 · 공급가액 표"} rows={7} />
               <div className="paste-meta-grid">
                 <label>결제 총액 <span>못 찾을 때만</span><input inputMode="numeric" value={pasteTotal} onChange={(event) => setPasteTotal(event.target.value)} placeholder="예: 77800" /></label>
               </div>
@@ -253,7 +253,7 @@ export default function ImportDialog({ onClose, onImport }: ImportDialogProps) {
                   </ol>
                 </section>
               </div>
-              <div className="paper-checklist"><strong>저장 후 확인</strong><span>순번·품목·수량·단가·공급가액(금액)이 선명함</span><span>순번이 없으면 표 머리글과 첫 품목이 함께 보임</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
+              <div className="paper-checklist"><strong>저장 후 확인</strong><span>번호·품목·규격·수량·단위·단가·공급가액(금액)이 선명함</span><span>비슷한 열 이름과 두 줄 머리글도 자동 인식</span><span>순번이 없으면 표 머리글과 첫 품목이 함께 보임</span><span>PDF에서 글자 선택·검색 가능</span><span>페이지 잘림 없음</span></div>
               <p className="pdf-save-tip"><span aria-hidden="true">i</span> 복합기에 OCR 항목이 없으면 제조사 PC 스캔 프로그램에서 ‘검색 가능한 PDF’ 또는 ‘텍스트 인식’을 선택하세요.</p>
             </div>
             <button className="drop-zone paper-drop-zone" type="button" onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
