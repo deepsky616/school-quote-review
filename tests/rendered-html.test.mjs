@@ -156,6 +156,9 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.match(review, /복사 붙여넣기와 PDF 방법 비교/);
   assert.match(review, /YES24·교보문고·G마켓·아이스크림몰·11번가·만안문구센터·티처몰 예시 구조/);
   assert.match(review, /자동 수집하지 않습니다/);
+  assert.match(review, /<footer className="site-footer">/);
+  assert.match(review, /개발자/);
+  assert.match(review, /청계초등학교 조영석/);
   assert.doesNotMatch(review, /상품 링크를 한 줄에 하나씩|상품 초안 만들기|현재 화면 보내기|getDisplayMedia/);
   assert.match(dialog, /useState<ImportMode>\("paste"\)/);
   assert.match(dialog, /아이스크림몰 · 쿠팡 · G마켓 · YES24 · 교보문고 · 11번가 · 티처몰 자동 구분/);

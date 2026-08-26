@@ -389,6 +389,9 @@ h1 { margin: 0; max-width: 560px; font-size: clamp(40px, 5vw, 64px); line-height
 .card-footer { padding: 19px 24px; display: flex; align-items: center; justify-content: space-between; background: #faf9f5; }
 .card-footer p { margin: 0; color: #89938d; font-size: 11px; }
 .footer-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.site-footer { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 26px 16px 8px; color: #78857d; font-size: 11px; }
+.site-footer span { padding-right: 8px; border-right: 1px solid #cfd7d2; font-weight: 700; }
+.site-footer strong { color: #55645b; font-weight: 800; }
 .primary-button { border-radius: 10px; padding: 12px 17px; font-size: 13px; font-weight: 800; }
 .primary-button { display: flex; align-items: center; gap: 18px; border: 1px solid var(--green-dark); background: var(--green); color: white; box-shadow: 0 5px 12px rgba(23,107,77,.18); }
 .ghost-button:hover { border-color: #aeb8b2; background: #fff; }

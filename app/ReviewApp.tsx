@@ -649,6 +649,10 @@ export default function ReviewApp() {
             <div><p>순번·내용·규격·단위·수량·예상단가·예상금액과 원본 주문의 결제 총액을 대조하세요. 생성 파일은 내부 품의·정리용이며 원본 증빙을 대신하지 않습니다.</p></div>
           </details>
         </section>
+        <footer className="site-footer">
+          <span>개발자</span>
+          <strong>청계초등학교 조영석</strong>
+        </footer>
       </section>
     </main>
   );
