@@ -332,14 +332,29 @@ test("쇼핑몰별 주문 화면 PDF는 좌표 구조에 맞춰 상품명·할�
   ]);
 
   const iscream = iscreamPositionedPagesToOrder([[
-    cell("아이스크림몰", 340, 800), cell("주문상품", 43, 760), cell("슈링클스", 115, 700), cell("클래스룸 팩 50장입_반투명(마술종이DIY)", 115, 682), cell("합배송 상품", 130, 665), cell("단일상품", 115, 646), cell("/ 2개", 151, 646), cell("60,000", 115, 625), cell("원", 155, 625),
+    cell("아이스크림몰", 340, 800), cell("주문상품", 43, 760), cell("3건", 94, 760),
+    cell("문교", 115, 720), cell("분필 칠판지우개 청소당번", 115, 702), cell("합배송 상품", 130, 685), cell("단일상품", 115, 666), cell("/ 2개", 151, 666), cell("3,600", 115, 645), cell("원", 150, 645),
+    cell("슈링클스", 115, 600), cell("클래스룸 팩 50장입_반투명(마술종이DIY)", 115, 582), cell("합배송 상품", 130, 565), cell("단일상품", 115, 546), cell("/ 2개", 151, 546), cell("60,000", 115, 525), cell("원", 155, 525),
+    cell("진행 문서 화일 (재질 / 색상 선택)", 115, 480), cell("종이>노랑색", 115, 461), cell("/ 25개", 166, 461), cell("27,500", 115, 440), cell("원", 153, 440),
+  ], [
+    cell("상품금액", 44, 700), cell("91,100", 500, 700), cell("원", 545, 700),
   ]]);
   assert.ok(iscream);
   assert.equal(iscream._extractedBy, "iscream-pdf-cards");
   assert.deepEqual(iscream.items.map((item) => [item.내용, item.수량, item.단가, item.금액]), [
+    ["문교 분필 칠판지우개 청소당번", 2, 1800, 3600],
     ["슈링클스 클래스룸 팩 50장입_반투명(마술종이DIY)", 2, 30000, 60000],
+    ["진행 문서 화일 (재질 / 색상 선택)", 25, 1100, 27500],
   ]);
+  assert.deepEqual(iscream.items.map((item) => item.규격), ["단일상품", "단일상품", "종이>노랑색"]);
+  assert.equal(iscream.paidTotal, 91100);
   assert.deepEqual(iscream._warnings, []);
+
+  const incompleteIscream = iscreamPositionedPagesToOrder([[
+    cell("아이스크림몰", 340, 800), cell("주문상품", 43, 760), cell("3건", 94, 760),
+    cell("슈링클스", 115, 700), cell("클래스룸 팩 50장입_반투명(마술종이DIY)", 115, 682), cell("단일상품", 115, 646), cell("/ 2개", 151, 646), cell("60,000", 115, 625),
+  ]]);
+  assert.equal(incompleteIscream, null);
 });
 
 test("복사한 주문 화면을 6개 품목 필드와 안전 경고로 정규화한다", () => {

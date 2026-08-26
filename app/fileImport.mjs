@@ -196,7 +196,7 @@ const cellsNearRow = (cells, y, tolerance = 3) => cells
 
 const tidyPdfProductName = (value) => cleanPdfCell(value)
   .replace(/\s+([),])/g, "$1")
-  .replace(/([(/])\s+/g, "$1")
+  .replace(/\(\s+/g, "(")
   .replace(/(\d)\s+(개입|박스|자루|권|매|세트|팩|롤|속|개)/g, "$1$2")
   .replace(/\s+\S+\s*…$/u, "")
   .replace(/복합\s+기/g, "복합기")
@@ -382,28 +382,49 @@ export function iscreamPositionedPagesToOrder(positionedPages) {
   const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
   if (!/아이스크림몰|i-screammall\.co\.kr/i.test(documentText) || !/주문상품/.test(documentText)) return null;
 
-  const items = pages.flatMap((cells) => cells
-    .filter((cell) => cell.x >= 100 && cell.x < 175 && cell.value === "단일상품")
-    .sort((a, b) => b.y - a.y)
-    .flatMap((quantityLabel) => {
-      const quantityText = cellsNearRow(cells, quantityLabel.y).map((cell) => cell.value).join(" ");
-      const quantity = Number(quantityText.match(/\/\s*(\d{1,4})\s*개/)?.[1] ?? 0);
+  const expectedProductCount = Number(documentText.match(/주문상품(\d{1,3})(?:건|개)/)?.[1] ?? 0);
+  const documentedProductTotal = pages.reduce((found, cells) => {
+    if (found) return found;
+    const totalLabel = cells.find((cell) => /^상품금액$/.test(cell.value.replace(/\s+/g, "")));
+    if (!totalLabel) return 0;
+    return cellsNearRow(cells, totalLabel.y, 4)
+      .filter((cell) => cell.x > totalLabel.x && pdfMoney(cell.value) > 0)
+      .map((cell) => pdfMoney(cell.value))[0] ?? 0;
+  }, 0);
+
+  const items = pages.flatMap((cells) => {
+    const quantityRows = cells
+      .filter((cell) => cell.x >= 100 && cell.x < 430)
+      .map((cell) => cell.y)
+      .filter((rowY, index, rows) => rows.findIndex((candidate) => Math.abs(candidate - rowY) <= 3) === index)
+      .map((rowY) => ({ rowY, text: cellsNearRow(cells, rowY).map((cell) => cell.value).join(" ") }))
+      .filter((row) => /\/\s*\d{1,4}\s*(?:개|세트|팩|박스|권|매|병|봉|묶음|식)/.test(row.text))
+      .sort((a, b) => b.rowY - a.rowY);
+
+    return quantityRows.flatMap(({ rowY, text: quantityText }, rowIndex) => {
+      const quantityMatch = quantityText.match(/\/\s*(\d{1,4})\s*(개|세트|팩|박스|권|매|병|봉|묶음|식)/);
+      const quantity = Number(quantityMatch?.[1] ?? 0);
+      const previousRowY = quantityRows[rowIndex - 1]?.rowY;
+      const nameUpperY = previousRowY ? Math.min(rowY + 90, (rowY + previousRowY) / 2) : rowY + 90;
       const name = tidyPdfProductName(cells
-        .filter((cell) => cell.x >= 100 && cell.x < 430 && cell.y > quantityLabel.y && cell.y <= quantityLabel.y + 90)
+        .filter((cell) => cell.x >= 100 && cell.x < 430 && cell.y > rowY && cell.y <= nameUpperY)
         .filter((cell) => !/^(?:합배송 상품|단일상품)$/.test(cell.value))
         .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x)
         .map((cell) => cell.value)
         .join(" "));
       const amountCell = cells
-        .filter((cell) => cell.x >= 100 && cell.x < 200 && cell.y < quantityLabel.y && quantityLabel.y - cell.y <= 30 && pdfMoney(cell.value) > 0)
+        .filter((cell) => cell.x >= 100 && cell.x < 200 && cell.y < rowY && rowY - cell.y <= 30 && pdfMoney(cell.value) > 0)
         .sort((a, b) => b.y - a.y)[0];
       const amount = pdfMoney(amountCell?.value);
       const unitPrice = quantity ? Math.round(amount / quantity) : 0;
       if (!name || !quantity || !amount || !unitPrice) return [];
+      const explicitSpec = quantityText
+        .replace(/\s*\/\s*\d{1,4}\s*(?:개|세트|팩|박스|권|매|병|봉|묶음|식).*$/i, "")
+        .trim();
       return [{
         내용: name,
-        규격: "단일상품",
-        단위: "개",
+        규격: explicitSpec || "",
+        단위: quantityMatch?.[2] || "개",
         수량: quantity,
         단가: unitPrice,
         금액: amount,
@@ -411,9 +432,12 @@ export function iscreamPositionedPagesToOrder(positionedPages) {
         _warnings: amount === quantity * unitPrice ? [] : ["V06"],
         excluded: false,
       }];
-    }));
+    });
+  });
   const calculatedTotal = items.reduce((sum, item) => sum + item.금액, 0);
-  return positionedPdfOrder("아이스크림몰", "iscream-pdf-cards", items, calculatedTotal);
+  if (expectedProductCount && items.length !== expectedProductCount) return null;
+  if (documentedProductTotal && documentedProductTotal !== calculatedTotal) return null;
+  return positionedPdfOrder("아이스크림몰", "iscream-pdf-cards", items, documentedProductTotal || calculatedTotal);
 }
 
 export async function importPdf(file, onProgress = (progress, label) => { void progress; void label; }) {
