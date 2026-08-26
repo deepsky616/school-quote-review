@@ -263,37 +263,67 @@ export function gmarketPositionedPagesToOrder(positionedPages) {
   const pages = normalizedPdfPages(positionedPages);
   const documentText = pdfDocumentText(positionedPages).replace(/\s+/g, "");
   if (!/G마켓|checkout\.gmarket\.co\.kr/i.test(documentText) || !/주문상품/.test(documentText)) return null;
+  const expectedProductCount = Number(documentText.match(/주문상품(\d{1,3})개/)?.[1] ?? 0);
 
   const items = pages.flatMap((cells) => {
     const quantityLabels = cells
       .filter((cell) => cell.x >= 100 && cell.x < 155 && cell.value === "수량")
+      .filter((quantityLabel) => {
+        const row = cellsNearRow(cells, quantityLabel.y);
+        const quantityCell = row.find((cell) => cell.x > quantityLabel.x && cell.x < quantityLabel.x + 30 && /^\d{1,3}$/.test(cell.value));
+        return Boolean(quantityCell && row.some((cell) => cell.x > quantityCell.x && cell.x < quantityCell.x + 20 && /^(?:개|세트|팩|박스|권|매|병|봉|묶음|식)$/.test(cell.value)));
+      })
       .sort((a, b) => b.y - a.y);
     return quantityLabels.flatMap((quantityLabel, index) => {
       const quantityRow = cellsNearRow(cells, quantityLabel.y);
       const quantityCell = quantityRow.find((cell) => cell.x > quantityLabel.x && /^\d{1,3}$/.test(cell.value));
-      const nameAnchor = cells
-        .filter((cell) => cell.x >= 100 && cell.x < 400 && cell.y > quantityLabel.y && cell.y <= quantityLabel.y + 22)
-        .sort((a, b) => Math.abs(a.y - quantityLabel.y) - Math.abs(b.y - quantityLabel.y))[0];
-      if (!quantityCell || !nameAnchor) return [];
-      const name = tidyPdfProductName(cellsNearRow(cells, nameAnchor.y)
-        .filter((cell) => cell.x >= 100 && cell.x < 400)
-        .map((cell) => cell.value)
+      if (!quantityCell) return [];
+
+      const previousQuantityY = quantityLabels[index - 1]?.y;
+      const nameUpperY = previousQuantityY
+        ? (quantityLabel.y + previousQuantityY) / 2
+        : quantityLabel.y + 80;
+      const detailRows = cells
+        .filter((cell) => cell.x >= 100 && cell.x < 400 && cell.y > quantityLabel.y && cell.y <= nameUpperY)
+        .map((cell) => cell.y)
+        .filter((rowY, rowIndex, rows) => rows.findIndex((candidate) => Math.abs(candidate - rowY) <= 3) === rowIndex)
+        .map((rowY) => ({
+          rowY,
+          text: cleanPdfCell(cellsNearRow(cells, rowY)
+            .filter((cell) => cell.x >= 100 && cell.x < 400)
+            .map((cell) => cell.value)
+            .join(" ")),
+        }))
+        .filter((row) => row.text
+          && !/^\d*\s*(?:개|건|세트|팩|박스|권|매|병|봉|묶음|식)$/i.test(row.text)
+          && !/^(?:쿠폰\s*적용|무료\s*배송|배송비|오늘|내일|모레|도착|판매자|주문상품|최대\s*할인)/i.test(row.text))
+        .sort((a, b) => b.rowY - a.rowY);
+      const specRows = detailRows.filter((row) => (
+        /^(?:옵션|선택|색상|사이즈|규격|단일상품)(?:\s|[:：×>]|$)|총\s*수량/i.test(row.text)
+        || /(?:\d+(?:\.\d+)?\s*[x×*]\s*)+\d+(?:\.\d+)?\s*(?:mm|cm|m)\b/i.test(row.text)
+      ));
+      const spec = tidyPdfProductName(specRows.map((row) => row.text).join(" "));
+      const name = tidyPdfProductName(detailRows
+        .filter((row) => !specRows.includes(row))
+        .slice(-2)
+        .map((row) => row.text)
         .join(" "));
       const priceCell = cells
         .filter((cell) => cell.x >= 315 && cell.x < 400 && cell.y < quantityLabel.y && quantityLabel.y - cell.y <= 42 && pdfMoney(cell.value) > 0)
         .sort((a, b) => a.y - b.y)[0];
       const quantity = Number(quantityCell.value);
-      const unitPrice = pdfMoney(priceCell?.value);
-      if (!name || !quantity || !unitPrice) return [];
+      const amount = pdfMoney(priceCell?.value);
+      const unitPrice = quantity ? Math.round(amount / quantity) : 0;
+      if (!name || !quantity || !amount || !unitPrice) return [];
       const product = {
         내용: name,
-        규격: "",
+        규격: spec,
         단위: "개",
         수량: quantity,
         단가: unitPrice,
-        금액: quantity * unitPrice,
-        _rawName: `${name} | 수량 ${quantity}개 | ${priceCell.value}`,
-        _warnings: [],
+        금액: amount,
+        _rawName: `${name} | ${spec || "규격 없음"} | 수량 ${quantity}개 | ${priceCell.value}`,
+        _warnings: amount === quantity * unitPrice ? [] : ["V06"],
         excluded: false,
       };
 
@@ -317,6 +347,7 @@ export function gmarketPositionedPagesToOrder(positionedPages) {
       }] : [product];
     });
   });
+  if (expectedProductCount && items.filter((item) => item.내용 !== "배송비").length !== expectedProductCount) return null;
   return positionedPdfOrder("G마켓", "gmarket-pdf-cards", items);
 }
 
