@@ -138,7 +138,7 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   assert.doesNotMatch(dialog, /클립보드에서 붙여넣기|navigator\.clipboard\.readText/);
   assert.match(review, /지원 쇼핑몰 주문 화면 바로가기/);
   assert.match(review, /https:\/\/i-screammall\.co\.kr\//);
-  assert.match(review, /https:\/\/mc\.coupang\.com\/ssr\/desktop\/order\/list/);
+  assert.match(review, /https:\/\/cart\.coupang\.com\/cartView\.pang/);
   assert.match(review, /https:\/\/myg\.gmarket\.co\.kr\//);
   assert.match(review, /https:\/\/www\.yes24\.com\/Member\/FTMypageMain\.aspx/);
   assert.match(review, /https:\/\/www\.11st\.co\.kr\//);
@@ -150,8 +150,10 @@ test("스텝 1을 주문 화면 붙여넣기·PDF 문서·종이 문서 탭으�
   const shoppingLinkPositions = shoppingLinkOrder.map((name) => shoppingLinksSource.indexOf(`name: "${name}"`));
   assert.ok(shoppingLinkPositions.every((position) => position >= 0));
   assert.deepEqual(shoppingLinkPositions, [...shoppingLinkPositions].sort((left, right) => left - right));
-  assert.match(review, /장바구니·주문결제/);
-  assert.match(review, /장바구니·주문내역 PDF/);
+  assert.equal((shoppingLinksSource.match(/hint: "주문결제 페이지"/g) ?? []).length, 6);
+  assert.match(shoppingLinksSource, /name: "쿠팡"[^\n]+hint: "장바구니 페이지"/);
+  assert.match(shoppingLinksSource, /name: "만안문구센터"[^\n]+hint: "주문결제 페이지 PDF"/);
+  assert.doesNotMatch(shoppingLinksSource, /나의 쇼핑정보|주문목록|마이페이지|주문·결제/);
   assert.match(review, /자동 품목 구분은 위에 표시된 쇼핑몰 주문 화면을 기준으로 최적화/);
   assert.match(review, /다른 쇼핑몰은 값이 빠지거나 잘못 연결될 수 있으므로/);
   assert.match(review, /복사 붙여넣기와 PDF 방법 비교/);

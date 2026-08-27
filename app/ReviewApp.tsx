@@ -58,14 +58,14 @@ const initialMeta: OrderMeta = {
 };
 
 const shoppingOrderLinks = [
-  { name: "G마켓", href: "https://myg.gmarket.co.kr/", hint: "나의 쇼핑정보" },
-  { name: "11번가", href: "https://www.11st.co.kr/", hint: "주문·배송조회" },
-  { name: "쿠팡", href: "https://mc.coupang.com/ssr/desktop/order/list", hint: "주문목록" },
-  { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "마이페이지" },
-  { name: "교보문고", href: "https://www.kyobobook.co.kr/", hint: "장바구니·주문결제" },
-  { name: "아이스크림몰", href: "https://i-screammall.co.kr/", hint: "로그인 후 주문내역" },
-  { name: "티처몰", href: "https://shop.teacherville.co.kr/", hint: "장바구니·주문결제" },
-  { name: "만안문구센터", href: "https://www.mananmungu.co.kr/mall/index.php", hint: "장바구니·주문내역 PDF" },
+  { name: "G마켓", href: "https://myg.gmarket.co.kr/", hint: "주문결제 페이지" },
+  { name: "11번가", href: "https://www.11st.co.kr/", hint: "주문결제 페이지" },
+  { name: "쿠팡", href: "https://cart.coupang.com/cartView.pang", hint: "장바구니 페이지" },
+  { name: "YES24", href: "https://www.yes24.com/Member/FTMypageMain.aspx", hint: "주문결제 페이지" },
+  { name: "교보문고", href: "https://www.kyobobook.co.kr/", hint: "주문결제 페이지" },
+  { name: "아이스크림몰", href: "https://i-screammall.co.kr/", hint: "주문결제 페이지" },
+  { name: "티처몰", href: "https://shop.teacherville.co.kr/", hint: "주문결제 페이지" },
+  { name: "만안문구센터", href: "https://www.mananmungu.co.kr/mall/index.php", hint: "주문결제 페이지 PDF" },
 ];
 
 const warningText: Record<string, string> = {
@@ -464,7 +464,7 @@ export default function ReviewApp() {
         <section className="quick-start" aria-labelledby="quick-start-title">
           <div className="quick-start-copy"><span>STEP 1 · 자료 가져오기</span><h2 id="quick-start-title">주문내역을 가져오는 방법을 선택하세요</h2><p>쇼핑몰 화면은 복사하거나 PDF로 저장하고, 종이 견적서·영수증은 문자 인식 PDF로 스캔하면 됩니다.</p></div>
           <nav className="shopping-order-links shared-shopping-links" aria-label="지원 쇼핑몰 주문 화면 바로가기">
-            <div className="shopping-order-guide"><strong>먼저, 주문 화면 열기</strong><span>쇼핑몰에 로그인한 뒤 상품명·수량·가격이 보이는 주문상세 화면을 여세요.</span></div>
+            <div className="shopping-order-guide"><strong>먼저, 주문 화면 열기</strong><span>주문결제 페이지를 여세요. 쿠팡은 장바구니 페이지, 만안문구센터는 주문결제 페이지 PDF를 이용합니다.</span></div>
             <div className="shopping-order-list">
               {shoppingOrderLinks.map((shop) => <a key={shop.name} href={shop.href} target="_blank" rel="noreferrer"><b>{shop.name}</b><span>{shop.hint}</span><em aria-hidden="true">↗</em></a>)}
             </div>
@@ -488,7 +488,7 @@ export default function ReviewApp() {
             <div className="quick-start-panel" id="paste-method-panel" role="tabpanel" aria-labelledby="paste-method-tab">
               <form className="link-import-form paste-import-form" onSubmit={(event) => { event.preventDefault(); importPastedOrder(); }}>
                 <header className="paste-form-heading">
-                  <label htmlFor="order-screen-text">장바구니 또는 주문내역 전체</label>
+                  <label htmlFor="order-screen-text">주문결제 페이지 전체 · 쿠팡은 장바구니 페이지</label>
                   <button className="paste-clear-button" type="button" onClick={clearPastedOrder} disabled={!pasteText && !pasteTotal} aria-label="붙여넣은 주문내역 전체 지우기"><span aria-hidden="true">×</span> 전체 지우기</button>
                 </header>
                 <div><textarea id="order-screen-text" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setPasteKind("idle"); setPasteStatus("주문 화면이나 번호·품목·수량·단가·공급가액 표를 붙이면 열을 구분합니다."); }} placeholder={"쇼핑몰 주문 화면에서 Ctrl+A → Ctrl+C 후 여기에 Ctrl+V\n\n상품명 · 옵션 · 수량 · 할인가 · 배송비 또는 번호 · 품목 · 수량 · 단가 · 공급가액 표"} rows={8} /><button type="submit" disabled={!pasteText.trim()}>품목 자동 작성</button></div>
@@ -506,7 +506,7 @@ export default function ReviewApp() {
               <div className="pdf-save-guide" aria-labelledby="pdf-save-title">
                 <div className="pdf-save-heading"><div><span>가장 정확한 방법</span><h3 id="pdf-save-title">주문 화면을 PDF로 저장하는 방법</h3></div><em>Windows · Chrome · Edge</em></div>
                 <ol className="pdf-save-steps">
-                  <li><b>1</b><div><strong>주문내역 화면 열기</strong><p>상품명·옵션·수량·할인가·배송비가 모두 보이는 주문상세 화면을 여세요.</p></div></li>
+                  <li><b>1</b><div><strong>복사할 화면 열기</strong><p>주문결제 페이지를 여세요. 쿠팡은 장바구니 페이지를 이용합니다.</p></div></li>
                   <li><b>2</b><div><strong><kbd>Ctrl</kbd> + <kbd>P</kbd> 누르기</strong><p>인쇄 화면의 프린터에서 <mark>PDF로 저장</mark> 또는 <mark>Microsoft Print to PDF</mark>를 선택하세요.</p></div></li>
                   <li><b>3</b><div><strong>전체 페이지 저장 후 업로드</strong><p>페이지는 ‘전체’로 저장하고, 아래에서 저장한 PDF 파일을 선택하세요.</p></div></li>
                 </ol>
