@@ -6,6 +6,7 @@ const MARKDOWN_LINK = /^\s*(?:[-*]\s*)?\[([^\]]+)\]\((https?:\/\/[^)]+)\)\s*$/i;
 const SITE_HEADER = /^(?:아이스크림몰|쿠팡|G마켓|YES24|11번가|티처몰|교보문고)(?:\s|$).*https?:\/\//i;
 const OPTION_LINE = /^(?:선택|색상|옵션)\s*[:：]?/i;
 const QUANTITY_UNITS = "개|세트|팩|박스|권|매|병|봉|묶음|식";
+const CONVERTED_UNIT_PRICE = /\([^)]*\d+(?:\.\d+)?\s*[A-Za-z가-힣㎖㎏㎡]+\s*당\s*[\d,]+\s*원[^)]*\)/gi;
 
 const toNumber = (value = "") => {
   const parsed = Number(String(value).replace(/[^\d.-]/g, ""));
@@ -13,7 +14,8 @@ const toNumber = (value = "") => {
 };
 
 const moneyValues = (line) => {
-  const matches = line.match(/(?:₩\s*\d[\d,]*|\d[\d,]*\s*원|\d{1,3}(?:,\d{3})+)/g) ?? [];
+  const withoutConvertedUnitPrice = String(line ?? "").replace(CONVERTED_UNIT_PRICE, " ");
+  const matches = withoutConvertedUnitPrice.match(/(?:₩\s*\d[\d,]*|\d[\d,]*\s*원|\d{1,3}(?:,\d{3})+)/g) ?? [];
   return matches.map(toNumber).filter((value) => value >= 0);
 };
 
@@ -33,6 +35,7 @@ const cleanScrapedUrl = (value) => String(value ?? "")
 const isNonProductLine = (value) => {
   const line = cleanScrapedLine(value);
   if (!line || SITE_HEADER.test(line) || HEADER_LABEL.test(line) || CONTROL_LABEL.test(line)) return true;
+  if (line.replace(CONVERTED_UNIT_PRICE, "").trim() === "") return true;
   if (/^[\d.,%+\s]+$/.test(line)) return true;
   if (/^(?:상품\s*금액|쿠폰\s*(?:적용|할인)|할인\s*\d|무료배송|배송비|로켓배송\s*상품|합배송\s*상품|삭제|내일\b|품절임박|만족했어요|한달구매|판매자(?:로켓)?|도착|주문\s*가능)/i.test(line)) return true;
   if (/(?:캐시|포인트)\s*적립|YES포인트|이상\s*(?:구매\s*시\s*)?(?:배송비\s*)?무료|\d+\s*%\s*$|\d+\s*개당/i.test(line)) return true;
@@ -434,25 +437,29 @@ function coupangProductItems(text) {
       }
     }
 
-    const priceCandidates = block.flatMap((line) => {
-      if (/무료배송|배송비|주문\s*가능|쿠폰할인\s*적용|캐시\s*적립|포인트|\d+\s*개당/i.test(line)) return [];
-      return moneyValues(line);
+    const priceCandidates = block.flatMap((line, index) => {
+      if (/무료배송|배송비|주문\s*가능|쿠폰할인\s*적용|캐시\s*적립|포인트/i.test(line)) return [];
+      return moneyValues(line).map((value) => ({ value, index }));
     });
-    const amount = priceCandidates[priceCandidates.length - 1] ?? 0;
+    const finalPrice = priceCandidates[priceCandidates.length - 1];
+    const amount = finalPrice?.value ?? 0;
     if (!name || !amount) return [];
 
+    const explicitQuantityLine = block.find((line, index) => index > (finalPrice?.index ?? -1) && /^\d{1,4}\s*(?:개)?$/i.test(line));
+    const explicitQuantity = toNumber(explicitQuantityLine);
     const perUnitLine = block.find((line) => /\d+\s*개당\s*[\d,]+\s*원/i.test(line));
     const perUnitMatch = perUnitLine?.match(/\d+\s*개당\s*([\d,]+)\s*원/i);
     const perUnitPrice = toNumber(perUnitMatch?.[1]);
-    const inferredQuantity = perUnitPrice > 0 && amount % perUnitPrice === 0 ? amount / perUnitPrice : 1;
-    const warnings = perUnitPrice > 0 && inferredQuantity === 1 && amount !== perUnitPrice ? ["V11"] : [];
-    if (!perUnitPrice) warnings.push("V04");
+    const inferredQuantity = !explicitQuantity && perUnitPrice > 0 && amount % perUnitPrice === 0 ? amount / perUnitPrice : 0;
+    const quantity = explicitQuantity || inferredQuantity || 1;
+    const warnings = explicitQuantity || inferredQuantity ? [] : ["V04"];
+    if (!explicitQuantity && perUnitPrice > 0 && amount % perUnitPrice !== 0) warnings.push("V11");
 
     const item = makeItem({
       name,
       spec: rawSpec.trim(),
       unit: "개",
-      quantity: inferredQuantity,
+      quantity,
       amount,
       sourceUrl,
       raw: block.join(" "),

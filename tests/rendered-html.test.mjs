@@ -956,6 +956,57 @@ test("쿠팡 주문은 정가·할인율·쿠폰·적립금을 제외하고 최�
   assert.equal(order.items.some((item) => /할인|쿠폰|캐시|무료배송/.test(item.내용)), false);
 });
 
+test("쿠팡 장바구니는 괄호 안 환산가격을 무시하고 마지막 수량으로 최종 합계를 나눈다", () => {
+  const order = parseOrderText([
+    "쿠팡 https://cart.coupang.com/cartView.pang",
+    "ABC에듀 스탠딩 자석클립보드 / 다용도 스탠드 자석 클립보드A4",
+    "옵션: 1개, 화이트",
+    "삭제",
+    "9/3 (목) 도착 예정",
+    "39,060",
+    "원",
+    "(1개당 2,790원)",
+    "14",
+    "젤리 6종 세트 ( 마이쮸 핑크리치 + 애플망고 + 써니피치 + 켄털루프멜론 + 말랑카우 밀크 + 딸기우유 ) 개별 포장",
+    "옵션: 1세트, 100g",
+    "삭제",
+    "한달구매 100+",
+    "내일(수) 도착",
+    "50,700",
+    "원",
+    "(10g당 1,690원)",
+    "3",
+    "시스퍼닉 컴퓨터 본체 받침대 높이 조절 이동식 사이드 테이블",
+    "옵션: 블랙, 1개",
+    "삭제",
+    "한달구매 200+",
+    "내일(수) 도착",
+    "156,000원",
+    "38%",
+    "95,600",
+    "원",
+    "2",
+  ].join("\n"));
+
+  assert.deepEqual(order.items.map((item) => item.수량), [14, 3, 2]);
+  assert.deepEqual(order.items.map((item) => item.단가), [2790, 16900, 47800]);
+  assert.deepEqual(order.items.map((item) => item.금액), [39060, 50700, 95600]);
+  assert.ok(order.items.every((item) => !item._warnings.includes("V04")));
+});
+
+test("다른 쇼핑몰도 괄호 안 단위 환산가격을 상품금액에서 제외한다", () => {
+  const order = parseOrderText([
+    "[젤리 6종 세트](https://item.gmarket.co.kr/Item?goodsCode=123456)",
+    "수량3개",
+    "상품 금액 : 50,700원 (10g당 1,690원)",
+  ].join("\n"));
+
+  assert.equal(order.items.length, 1);
+  assert.equal(order.items[0].수량, 3);
+  assert.equal(order.items[0].단가, 16900);
+  assert.equal(order.items[0].금액, 50700);
+});
+
 test("G마켓 일반 붙여넣기는 취소선 정가보다 마지막 할인 상품금액을 사용하고 배송비를 분리한다", () => {
   const order = parseOrderText([
     "G마켓 https://www.gmarket.co.kr/",
