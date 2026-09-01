@@ -71,6 +71,15 @@ test("검수·저장·xlsx 안전 규칙을 제품 코드에 유지한다", asyn
   assert.match(source, /const removeItem = \(id: string\) =>/);
   assert.match(source, /행 삭제/);
   assert.match(source, /품목내역 엑셀 파일 생성/);
+  assert.match(source, /const selectedRowsForExcel = \(items: ReviewItem\[\]\) => items/);
+  assert.match(source, /\.filter\(\(item\) => !item\.excluded\)/);
+  assert.match(source, /\.map\(\(item, index\) => \(\{ item, sequence: index \+ 1 \}\)\)/);
+  assert.match(source, /const rowNo = sequence \+ 1/);
+  assert.match(source, /included\.flatMap\(\(item\) => item\.warnings\)/);
+  assert.match(source, /!hasExcluded && meta\.stage === "post-purchase"/);
+  assert.match(source, /체크가 켜진 품목만 엑셀에 포함되며 1번부터 다시 정리됩니다/);
+  assert.match(source, /aria-label=\{`\$\{item\.내용\} 엑셀 파일에 포함`\}/);
+  assert.match(source, /selectedSequence \?\? "—"/);
   assert.doesNotMatch(source, />견적서 생성 </);
   assert.doesNotMatch(source, /className="ghost-button" type="button" onClick=\{\(\) => setImportOpen\(true\)\}>주문내역 가져오기<\/button>/);
   assert.match(source, /V15: "예산 한도 초과"/);

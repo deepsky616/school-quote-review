@@ -267,15 +267,19 @@ function zipStore(files: { name: string; content: string }[]) {
   return joinBytes([localData, centralData, end]);
 }
 
+const selectedRowsForExcel = (items: ReviewItem[]) => items
+  .filter((item) => !item.excluded)
+  .map((item, index) => ({ item, sequence: index + 1 }));
+
 function makeXlsx(items: ReviewItem[]) {
-  const included = items.filter((item) => !item.excluded);
+  const selectedRows = selectedRowsForExcel(items);
   const textCell = (ref: string, value: string, style: number) => `<c r="${ref}" t="inlineStr" s="${style}"><is><t>${escapeXml(value)}</t></is></c>`;
   const numberCell = (ref: string, value: number, style: number) => `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
-  const rows = included.map((item, index) => {
-    const rowNo = index + 2;
+  const rows = selectedRows.map(({ item, sequence }) => {
+    const rowNo = sequence + 1;
     return `<row r="${rowNo}" ht="17" customHeight="1">${textCell(`A${rowNo}`, item.내용, 2)}${textCell(`B${rowNo}`, item.규격, 2)}${textCell(`C${rowNo}`, item.단위, 2)}${numberCell(`D${rowNo}`, item.수량, 2)}${numberCell(`E${rowNo}`, item.단가, 3)}</row>`;
   }).join("");
-  const lastRow = Math.max(1, included.length + 1);
+  const lastRow = Math.max(1, selectedRows.length + 1);
   const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:E${lastRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="17"/>
 <cols><col min="1" max="5" width="14.0625" customWidth="1"/></cols><sheetData>
@@ -323,9 +327,13 @@ export default function ReviewApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const totals = useMemo(() => {
     const included = items.filter((item) => !item.excluded);
+    const hasExcluded = included.length !== items.length;
     const total = included.reduce((sum, item) => sum + item.수량 * item.단가, 0);
-    const warnings = [...meta.warnings, ...items.flatMap((item) => item.warnings)];
-    if (meta.stage === "post-purchase" && meta.paidTotal && meta.paidTotal !== total) warnings.push("V07");
+    const documentWarnings = hasExcluded
+      ? meta.warnings.filter((warning) => warning !== "V07")
+      : meta.warnings;
+    const warnings = [...documentWarnings, ...included.flatMap((item) => item.warnings)];
+    if (!hasExcluded && meta.stage === "post-purchase" && meta.paidTotal && meta.paidTotal !== total) warnings.push("V07");
     if (meta.stage === "pre-purchase" && meta.budget > 0 && total > meta.budget) warnings.push("V15");
     const comparison = meta.stage === "pre-purchase" ? meta.budget : meta.paidTotal;
     return { total, delta: comparison - total, warnings, included };
@@ -449,7 +457,7 @@ export default function ReviewApp() {
     if (hasBlock || totals.included.length === 0) return;
     const safeOrderNo = meta.orderNo.replace(/[\\/:*?"<>|]/g, "_");
     download(makeXlsx(items), `품목내역(통합)_${safeOrderNo}.xlsx`);
-    setMessage("품목내역(통합) 양식으로 만들었어요");
+    setMessage(`선택한 ${totals.included.length}개 품목을 1번부터 순서대로 만들었어요`);
   };
 
   return (
@@ -592,7 +600,7 @@ export default function ReviewApp() {
           </div>
 
           <div className="table-toolbar">
-            <div><h2>품목 {items.length}개</h2><p>포함 여부와 내용을 바꾸면 합계가 바로 갱신됩니다.</p></div>
+            <div><h2>품목 {items.length}개 · 선택 {totals.included.length}개</h2><p>순번 옆 체크가 켜진 품목만 엑셀에 포함되며 1번부터 다시 정리됩니다.</p></div>
             <div className="table-toolbar-actions">
               <span className="autosave" aria-live="polite"><i aria-hidden="true" /> {message}</span>
               <button className="add-item-button" type="button" onClick={addItem}><span aria-hidden="true">＋</span> 품목 추가</button>
@@ -601,16 +609,20 @@ export default function ReviewApp() {
 
           <div className="quote-table" role="table" aria-label="견적 품목 검수">
             <div className="quote-row table-head" role="row"><span role="columnheader">순번</span><span role="columnheader">내용</span><span role="columnheader">규격</span><span role="columnheader">단위</span><span role="columnheader">수량</span><span role="columnheader">예상단가</span><span role="columnheader">예상금액</span></div>
-            {visibleItems.map((item) => (
+            {visibleItems.map((item) => {
+              const selectedSequence = item.excluded
+                ? null
+                : totals.included.findIndex((candidate) => candidate.id === item.id) + 1;
+              return (
               <div className={`quote-row ${item.warnings.length ? "needs-check" : ""} ${item.excluded ? "is-excluded" : ""}`} role="row" key={item.id}>
-                <span className="sequence-cell" role="cell"><input className="real-check" type="checkbox" checked={!item.excluded} onChange={(event) => updateItem(item.id, { excluded: !event.target.checked, excludeReason: event.target.checked ? undefined : item.excludeReason ?? "검수에서 제외" })} aria-label={`${item.내용} 견적서 포함`} /><b>{items.findIndex((candidate) => candidate.id === item.id) + 1}</b></span>
+                <span className="sequence-cell" role="cell"><input className="real-check" type="checkbox" checked={!item.excluded} onChange={(event) => updateItem(item.id, { excluded: !event.target.checked, excludeReason: event.target.checked ? undefined : item.excludeReason ?? "엑셀에서 제외" })} aria-label={`${item.내용} 엑셀 파일에 포함`} /><b>{selectedSequence ?? "—"}</b></span>
                 <span className="name-cell" role="cell">
                   <span className="item-line"><input id={`item-name-${item.id}`} className="cell-input name-input" value={item.내용} onChange={(event) => updateItem(item.id, { 내용: event.target.value, warnings: item.warnings.filter((warning) => warning !== "V03") })} aria-label={`${item.내용 || "새 품목"} 품명`} />{item.warnings.map((warning) => <em key={warning}>{warning}</em>)}</span>
                   {item.manuallyAdded
                     ? <span className="manual-item-meta"><b>직접 추가</b><button type="button" onClick={() => removeItem(item.id)}>행 삭제</button></span>
                     : <span className="item-detail-meta"><b className={`item-provenance tier-${item.extractionTier.toLowerCase()}`} title={`${item.sourceDetail ?? item.extractionLabel} · ${Math.round(item.confidence * 100)}%`}>{item.extractionTier} {item.extractionLabel} · {confidenceBand(item.confidence)}</b><small title={item._rawName}>{item._rawName}</small></span>}
                   {item.sourceUrl && <a className="item-source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">원본 상품 ↗</a>}
-                  {item.excluded && <span className="exclude-note">제외 사유 · {item.excludeReason ?? "검수에서 제외"}</span>}
+                  {item.excluded && <span className="exclude-note">엑셀에서 제외</span>}
                 </span>
                 <span role="cell"><input className="cell-input" value={item.규격} onChange={(event) => updateItem(item.id, { 규격: event.target.value })} aria-label={`${item.내용} 규격`} /></span>
                 <span role="cell"><input className="cell-input unit-input" value={item.단위} onChange={(event) => updateItem(item.id, { 단위: event.target.value })} aria-label={`${item.내용} 단위`} /></span>
@@ -618,7 +630,8 @@ export default function ReviewApp() {
                 <span className="number" role="cell"><input className="cell-input price-input" type="number" min="0" step="1" value={item.manuallyAdded && item.warnings.includes("V05") ? "" : item.단가} onChange={(event) => { const value = event.target.value; updateItem(item.id, { 단가: safeNumber(value), warnings: value === "" ? [...new Set([...item.warnings, "V05"])] : item.warnings.filter((warning) => warning !== "V05" && warning !== "V06" && warning !== "V11") }); }} aria-label={`${item.내용 || "새 품목"} 예상단가`} /></span>
                 <span className="number amount" role="cell">{won(item.수량 * item.단가)}</span>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="card-footer">
