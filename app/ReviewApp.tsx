@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import ImportDialog from "./ImportDialog.tsx";
 import { importPdf } from "./fileImport.mjs";
@@ -325,6 +325,7 @@ export default function ReviewApp() {
   const [fileKind, setFileKind] = useState<"idle" | "working" | "success" | "error">("idle");
   const [selectedFileName, setSelectedFileName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const totals = useMemo(() => {
     const included = items.filter((item) => !item.excluded);
     const hasExcluded = included.length !== items.length;
@@ -340,8 +341,22 @@ export default function ReviewApp() {
   }, [items, meta.budget, meta.paidTotal, meta.stage, meta.warnings]);
 
   const visibleItems = issuesOnly ? items.filter((item) => item.warnings.length > 0) : items;
+  const allItemsSelected = items.length > 0 && totals.included.length === items.length;
+  const someItemsSelected = totals.included.length > 0 && !allItemsSelected;
   const hasBlock = totals.warnings.some((warning) => blockingRules.has(warning));
   const hasItems = items.length > 0;
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someItemsSelected;
+  }, [someItemsSelected]);
+
+  const selectAllItems = (checked: boolean) => {
+    setItems((current) => current.map((item) => ({
+      ...item,
+      excluded: !checked,
+      excludeReason: checked ? undefined : item.excludeReason ?? "엑셀에서 제외",
+    })));
+    setMessage(checked ? "모든 품목을 엑셀에 포함했어요" : "모든 품목을 엑셀에서 제외했어요");
+  };
   const updateItem = (id: string, patch: Partial<ReviewItem>) => {
     setItems((current) => current.map((item) => {
       if (item.id !== id) return item;
@@ -608,7 +623,7 @@ export default function ReviewApp() {
           </div>
 
           <div className="quote-table" role="table" aria-label="견적 품목 검수">
-            <div className="quote-row table-head" role="row"><span role="columnheader">순번</span><span role="columnheader">내용</span><span role="columnheader">규격</span><span role="columnheader">단위</span><span role="columnheader">수량</span><span role="columnheader">예상단가</span><span role="columnheader">예상금액</span></div>
+            <div className="quote-row table-head" role="row"><span className="sequence-cell sequence-header" role="columnheader"><input ref={selectAllRef} className="real-check" type="checkbox" checked={allItemsSelected} disabled={!hasItems} onChange={(event) => selectAllItems(event.target.checked)} aria-label="모든 품목을 엑셀 파일에 포함" /><b>순번</b></span><span role="columnheader">내용</span><span role="columnheader">규격</span><span role="columnheader">단위</span><span role="columnheader">수량</span><span role="columnheader">예상단가</span><span role="columnheader">예상금액</span></div>
             {visibleItems.map((item) => {
               const selectedSequence = item.excluded
                 ? null
